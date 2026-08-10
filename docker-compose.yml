@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: vrindaacorp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vrindaa
+      POSTGRES_PASSWORD: vrindaa
+      POSTGRES_DB: vrindaacorp_crm
+    ports:
+      - "5432:5432"
+    volumes:
+      - vrindaa_pgdata:/var/lib/postgresql/data
+
+volumes:
+  vrindaa_pgdata:
