@@ -99,6 +99,13 @@ npx tsx scripts/normalize-existing.ts
 5. On reply, lead is marked **Hot**, sequence pauses, and the owner is alerted (Email + WhatsApp). Unacknowledged after 48h → escalation.
 6. **Reports** → monthly funnel, pipeline, sectors, top templates; export Excel or Print→PDF.
 
+## Deploying to Vercel
+
+See **[DEPLOY.md](DEPLOY.md)** for the full guide. In short: provision a hosted
+Postgres (Neon/Supabase/Vercel Postgres), import the GitHub repo in Vercel, set the
+environment variables, and deploy. The always-on worker is replaced on Vercel by a
+scheduled Cron endpoint (`/api/cron`, configured in `vercel.json`).
+
 ## Production notes
 
 - Configure SES (SPF/DKIM/DMARC on the sending domain), a configuration set with an SNS
