@@ -37,6 +37,18 @@ export function buildLeadWhere(params: URLSearchParams): Prisma.LeadWhereInput {
   const tag = params.get("tag");
   if (tag) where.tags = { some: { tag: { name: tag } } };
 
+  const assignee = params.get("assignee");
+  if (assignee === "unassigned") where.ownerId = null;
+  else if (assignee) where.ownerId = assignee;
+
+  const source = params.get("source");
+  if (source) where.source = source;
+
+  const contract = params.get("contract");
+  if (contract && ["UNKNOWN", "NONE", "ACTIVE"].includes(contract)) {
+    where.contractStatus = contract as "UNKNOWN" | "NONE" | "ACTIVE";
+  }
+
   return where;
 }
 

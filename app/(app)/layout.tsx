@@ -12,16 +12,19 @@ import {
   IconCampaigns,
   IconTemplates,
   IconReports,
+  IconSources,
 } from "@/components/icons";
 
+// `ownerOnly` items are hidden from AGENT users (and blocked in middleware).
 const nav = [
   { href: "/", label: "Dashboard", icon: <IconDashboard /> },
   { href: "/leads", label: "Leads", icon: <IconLeads /> },
   { href: "/pipeline", label: "Pipeline", icon: <IconPipeline /> },
-  { href: "/import", label: "Import & Cleanup", icon: <IconImport /> },
-  { href: "/campaigns", label: "Campaigns", icon: <IconCampaigns /> },
-  { href: "/templates", label: "Templates", icon: <IconTemplates /> },
+  { href: "/import", label: "Import & Cleanup", icon: <IconImport />, ownerOnly: true },
+  { href: "/campaigns", label: "Campaigns", icon: <IconCampaigns />, ownerOnly: true },
+  { href: "/templates", label: "Templates", icon: <IconTemplates />, ownerOnly: true },
   { href: "/reports", label: "Reports", icon: <IconReports /> },
+  { href: "/settings/sources", label: "Lead Sources", icon: <IconSources />, ownerOnly: true },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -29,7 +32,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session) redirect("/login");
 
   const email = session.user?.email ?? "";
+  const role = (session.user as { role?: string }).role;
   const initials = email.slice(0, 2).toUpperCase();
+  const visibleNav = nav.filter((item) => !item.ownerOnly || role !== "AGENT");
 
   return (
     <div className="flex min-h-screen bg-slate-100">
@@ -43,7 +48,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-2">
-          {nav.map((item) => (
+          {visibleNav.map((item) => (
             <NavLink key={item.href} href={item.href} label={item.label} icon={item.icon} />
           ))}
         </nav>

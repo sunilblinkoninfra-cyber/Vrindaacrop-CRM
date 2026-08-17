@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { generateEmail, isAiConfigured } from "@/lib/ai/generate";
+import { getSessionUser, isOwnerOrAdmin } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -9,8 +8,12 @@ export const maxDuration = 60;
 // Generate a sample AI email for a representative lead so the user can preview
 // what an AI-enabled template will produce before launching a campaign.
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const user = await getSessionUser();
+    if (!isOwnerOrAdmin(user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const body = await req.json();
   const brief = String(body.brief ?? "").trim();

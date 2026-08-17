@@ -1,7 +1,10 @@
 import { Card, PageHeader, StatCard } from "@/components/ui";
 import { totals, emailFunnel, leadStageCounts } from "@/lib/metrics";
+import { getSessionUser, leadScopeWhere } from "@/lib/rbac";
 import { STAGE_LABELS } from "@/lib/constants";
 import { IconLeads, IconFire, IconCampaigns, IconReports } from "@/components/icons";
+
+export const dynamic = "force-dynamic";
 
 const stageBar: Record<string, string> = {
   NEW: "bg-slate-400",
@@ -14,7 +17,13 @@ const stageBar: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  const [t, funnel, stages] = await Promise.all([totals(), emailFunnel(), leadStageCounts()]);
+  const user = await getSessionUser();
+  const scope = leadScopeWhere(user);
+  const [t, funnel, stages] = await Promise.all([
+    totals(scope),
+    emailFunnel(undefined, scope),
+    leadStageCounts(scope),
+  ]);
   const maxStage = Math.max(1, ...stages.map((s) => s.count));
 
   const funnelSteps = [

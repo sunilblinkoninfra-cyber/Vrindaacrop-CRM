@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { normalizeEmail } from "@/lib/utils";
 import { pauseEnrollmentsForLead } from "@/lib/outreach/enroll";
+import { isFurther } from "@/lib/outreach/status";
 import { EmailEventType, SuppressionReason, Prisma } from "@prisma/client";
 
 /** Record an email event for a lead and (optionally) enrollment. */
@@ -20,6 +21,20 @@ export async function recordEvent(args: {
       metadata: (args.metadata as Prisma.InputJsonValue) ?? undefined,
     },
   });
+
+  // Denormalize the furthest status onto the enrollment for fast campaign views.
+  if (args.enrollmentId) {
+    const enr = await prisma.enrollment.findUnique({
+      where: { id: args.enrollmentId },
+      select: { lastEventType: true },
+    });
+    if (enr && isFurther(enr.lastEventType, args.type)) {
+      await prisma.enrollment.update({
+        where: { id: args.enrollmentId },
+        data: { lastEventType: args.type, lastEventAt: new Date() },
+      });
+    }
+  }
 }
 
 /** Add/refresh a global suppression entry and flag the lead. */

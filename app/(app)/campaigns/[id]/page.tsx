@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { CampaignBuilder } from "./builder";
+import { EnrolledLeads } from "./enrolled-leads";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export default async function CampaignDetailPage({ params }: { params: { id: str
         templates={templates}
         enrolledCount={campaign._count.enrollments}
       />
+      <EnrolledLeads campaignId={campaign.id} />
     </div>
   );
 }

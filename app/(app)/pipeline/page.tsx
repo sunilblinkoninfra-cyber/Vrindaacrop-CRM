@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { STAGES, STAGE_LABELS } from "@/lib/constants";
 import { fullName } from "@/lib/utils";
+import { getSessionUser, leadScopeWhere } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
 import { PipelineCard } from "./card";
 
@@ -9,13 +10,14 @@ export const dynamic = "force-dynamic";
 const PER_COLUMN = 50;
 
 export default async function PipelinePage() {
+  const user = await getSessionUser();
+  const scope = leadScopeWhere(user);
   const [leads, counts] = await Promise.all([
     prisma.lead.findMany({
-      where: { stage: { in: STAGES } },
+      where: { stage: { in: STAGES }, ...scope },
       orderBy: { updatedAt: "desc" },
-      include: {},
     }),
-    prisma.lead.groupBy({ by: ["stage"], _count: { _all: true } }),
+    prisma.lead.groupBy({ by: ["stage"], where: scope, _count: { _all: true } }),
   ]);
 
   const countMap = new Map(counts.map((c) => [c.stage, c._count._all]));

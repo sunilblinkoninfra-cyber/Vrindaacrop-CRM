@@ -3,6 +3,7 @@ import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/ses";
 import { applyTokens, pickSubject, injectTracking } from "@/lib/email/render";
 import { generateEmail } from "@/lib/ai/generate";
+import { isFurther } from "@/lib/outreach/status";
 import { startOfDay } from "date-fns";
 import { EmailEventType } from "@prisma/client";
 
@@ -116,6 +117,11 @@ export async function runSender(limit?: number): Promise<SendBatchResult> {
         await prisma.lead.update({ where: { id: lead.id }, data: { stage: "CONTACTED" } });
       }
 
+      // Denormalized campaign status: never regress an already-engaged lead.
+      const lastEventType = isFurther(enr.lastEventType, EmailEventType.SENT)
+        ? EmailEventType.SENT
+        : enr.lastEventType;
+
       // Schedule next step or complete.
       const nextStep = enr.campaign.steps.find((s) => s.order === enr.currentStep + 1);
       if (nextStep) {
@@ -123,12 +129,12 @@ export async function runSender(limit?: number): Promise<SendBatchResult> {
         nextSendAt.setDate(nextSendAt.getDate() + nextStep.delayDays);
         await prisma.enrollment.update({
           where: { id: enr.id },
-          data: { currentStep: enr.currentStep + 1, nextSendAt },
+          data: { currentStep: enr.currentStep + 1, nextSendAt, lastEventType, lastEventAt: new Date() },
         });
       } else {
         await prisma.enrollment.update({
           where: { id: enr.id },
-          data: { state: "COMPLETED", nextSendAt: null },
+          data: { state: "COMPLETED", nextSendAt: null, lastEventType, lastEventAt: new Date() },
         });
       }
       sent++;

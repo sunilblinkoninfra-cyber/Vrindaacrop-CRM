@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { getSessionUser, canAccessLead } from "@/lib/rbac";
 import { Badge, Card } from "@/components/ui";
 import { fullName } from "@/lib/utils";
+import { campaignLeadStatus, STATUS_LABEL, STATUS_TONE } from "@/lib/outreach/status";
 import { format } from "date-fns";
 import {
   StageControl,
@@ -12,6 +14,7 @@ import {
   TagEditor,
   LeadActions,
 } from "./detail-client";
+import { ContractCard } from "./contract-card";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +29,17 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
         tasks: { orderBy: { createdAt: "desc" } },
         activities: { include: { user: true }, orderBy: { createdAt: "desc" }, take: 30 },
         emailEvents: { orderBy: { createdAt: "desc" }, take: 30 },
+        enrollments: { include: { campaign: { select: { name: true } } }, orderBy: { updatedAt: "desc" } },
       },
     }),
     prisma.user.findMany({ select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
   ]);
 
   if (!lead) notFound();
+
+  // AGENT users may only open leads assigned to them.
+  const user = await getSessionUser();
+  if (!(await canAccessLead(user, lead.id))) notFound();
 
   return (
     <div className="space-y-4">
@@ -88,6 +96,30 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
               {lead.tasks.length === 0 && <p className="text-sm text-slate-400">No tasks.</p>}
             </div>
           </Card>
+
+          {lead.enrollments.length > 0 && (
+            <Card>
+              <h2 className="mb-3 text-sm font-semibold text-slate-700">Campaigns</h2>
+              <div className="space-y-2">
+                {lead.enrollments.map((e) => {
+                  const status = campaignLeadStatus(e.lastEventType);
+                  return (
+                    <div key={e.id} className="flex items-center justify-between text-sm">
+                      <span className="text-slate-700">{e.campaign.name}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400">Step {e.currentStep + 1}</span>
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_TONE[status]}`}
+                        >
+                          {STATUS_LABEL[status]}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
 
           <Card>
             <h2 className="mb-3 text-sm font-semibold text-slate-700">Email activity</h2>
@@ -148,6 +180,20 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
               <br />
               Validation: <span className="text-slate-700">{lead.validationStatus}</span>
             </div>
+          </Card>
+
+          <Card>
+            <h2 className="mb-3 text-sm font-semibold text-slate-700">Contract intelligence</h2>
+            <ContractCard
+              leadId={lead.id}
+              status={lead.contractStatus}
+              vendor={lead.incumbentVendor}
+              expiry={lead.contractExpiry ? lead.contractExpiry.toISOString().slice(0, 10) : null}
+              confidence={lead.contractConfidence}
+              source={lead.contractSource}
+              checked={lead.contractCheckedAt != null}
+              confirmed={lead.contractConfirmed}
+            />
           </Card>
 
           <Card>

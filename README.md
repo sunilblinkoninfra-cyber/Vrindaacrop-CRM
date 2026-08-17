@@ -99,6 +99,24 @@ npx tsx scripts/normalize-existing.ts
 5. On reply, lead is marked **Hot**, sequence pauses, and the owner is alerted (Email + WhatsApp). Unacknowledged after 48h → escalation.
 6. **Reports** → monthly funnel, pipeline, sectors, top templates; export Excel or Print→PDF.
 
+## Phase 2 features (inbound, RBAC, contract intelligence)
+
+- **Inbound lead capture** — public endpoints funnel website-form, Meta Lead Ads, and Google
+  Ads Lead Form submissions straight into leads (normalized, deduped, auto-assigned):
+  `POST /api/inbound/form` (secret), `/api/inbound/meta` (webhook + Graph API), `/api/inbound/google`
+  (keyed). See the **Lead Sources** admin page for URLs + setup and recent activity.
+- **RBAC** — `AGENT` users see and act only on leads assigned to them (enforced in queries,
+  server actions, API routes, and middleware); `OWNER`/`ADMIN` see everything and manage
+  campaigns/imports/templates. New leads are auto-assigned round-robin (`lib/assign.ts`).
+- **Per-lead campaign status** — each campaign shows an Enrolled-leads table with a live
+  Contacted / Opened / Clicked / Replied badge per lead (denormalized on `Enrollment.lastEventType`).
+- **24h unattended alerts** — a shared inbox (`COMPANY_ALERT_EMAIL`) is notified for replied-but-
+  unactioned hot leads and untouched inbound leads (idempotent; separate from the 48h owner escalation).
+- **Contract intelligence** — best-effort discovery of a lead-company's current FM vendor + contract
+  expiry via a pluggable model (`AI_PROVIDER=local` for an on-server OpenAI-compatible model, shared
+  with the website) plus optional web search; agent confirms, and a reminder fires one month before
+  expiry. Manual entry is always available. All of these run from the consolidated `/api/cron`.
+
 ## Deploying to Vercel
 
 See **[DEPLOY.md](DEPLOY.md)** for the full guide. In short: provision a hosted

@@ -1,13 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireRole } from "@/lib/rbac";
 
+// Template management is restricted to Owner/Admin.
 async function requireUser() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  await requireRole("ADMIN", "OWNER");
 }
 
 export async function upsertTemplate(input: {

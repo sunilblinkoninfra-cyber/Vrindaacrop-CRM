@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { buildLeadWhere } from "@/lib/leads-query";
+import { getSessionUser, leadScopeWhere } from "@/lib/rbac";
 import { Badge, Button, Card, PageHeader } from "@/components/ui";
 import { fullName } from "@/lib/utils";
 import { STAGE_LABELS } from "@/lib/constants";
@@ -18,7 +19,9 @@ export default async function LeadsPage({
   const params = new URLSearchParams(
     Object.entries(searchParams).filter(([, v]) => v) as [string, string][]
   );
-  const where = buildLeadWhere(params);
+  const user = await getSessionUser();
+  // AGENT users only ever see their own leads (enforced here, not just in the UI).
+  const where = { AND: [buildLeadWhere(params), leadScopeWhere(user)] };
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10));
 
   const [leads, total] = await Promise.all([

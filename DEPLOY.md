@@ -51,8 +51,16 @@ domain and redeploy (or add your custom domain first, then use that).
 
 ## 4. Scheduling (the worker replacement)
 
-`vercel.json` runs `/api/cron` **daily at 03:00 UTC**. That's fine for this system
-because follow-up delays are day-level and the batch cap is per-day.
+`vercel.json` runs `/api/cron` **daily at 03:00 UTC**. It now also drives the 24h
+unattended alerts, contract enrichment, and contract-expiry reminders (in addition to
+sending + 48h escalation). Daily is functionally fine, but the **24h alerts and
+enrichment feel timely only with hourly runs** — on Vercel Pro set the schedule to
+`0 * * * *`, or point an external cron at `/api/cron?token=<CRON_SECRET>` hourly.
+
+Also set (Phase 2): `COMPANY_ALERT_EMAIL` (shared inbox for 24h alerts), the
+`INBOUND_FORM_SECRET` / `META_*` / `GOOGLE_LEAD_KEY` capture secrets, and either
+`AI_PROVIDER=local` + `LOCAL_AI_BASE_URL`/`LOCAL_AI_MODEL` (on-server model) or the
+Anthropic key — see `.env.example` for the full list.
 
 - **Hobby plan:** cron is limited to once per day, and functions cap at ~60s — keep
   `DAILY_SEND_CAP` modest so a run finishes in time.

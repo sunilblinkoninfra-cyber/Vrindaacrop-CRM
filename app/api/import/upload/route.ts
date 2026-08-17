@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseFile, guessMapping } from "@/lib/import/parse";
 import { maybeFlatten } from "@/lib/import/flatten";
+import { getSessionUser, isOwnerOrAdmin } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const user = await getSessionUser();
+    if (!isOwnerOrAdmin(user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const form = await req.formData();
   const file = form.get("file") as File | null;

@@ -85,6 +85,45 @@ export async function sendEscalation(notificationId: string) {
   });
 }
 
+/**
+ * 24h "unattended" alert to the shared company inbox (COMPANY_ALERT_EMAIL) —
+ * separate from the 48h owner escalation. `kind` is "unattended_reply"
+ * (a replied hot lead not acknowledged) or "unattended_new" (a new lead sitting
+ * untouched). No-ops if no company inbox is configured.
+ */
+export async function sendCompanyUnattendedAlert(
+  lead: Lead & { owner: User | null },
+  kind: "unattended_reply" | "unattended_new"
+): Promise<boolean> {
+  const to = env.company.alertEmail;
+  if (!to) return false;
+
+  const name = fullName(lead.firstName, lead.lastName) || lead.email;
+  const appLink = `${env.appUrl.replace(/\/$/, "")}/leads/${lead.id}`;
+  const hrs = env.company.unattendedHours;
+  const owner = lead.owner?.name ?? lead.owner?.email ?? "unassigned";
+
+  const isReply = kind === "unattended_reply";
+  const subject = isReply
+    ? `⏳ Unattended hot lead (${hrs}h): ${name}`
+    : `⏳ New lead untouched for ${hrs}h: ${name}`;
+  const line = isReply
+    ? `<strong>${name}</strong>${lead.company ? ` — ${lead.company}` : ""} replied but has not been actioned in over ${hrs} hours.`
+    : `A new lead <strong>${name}</strong>${lead.company ? ` — ${lead.company}` : ""} (source: ${lead.source ?? "—"}) has sat untouched for over ${hrs} hours.`;
+
+  await sendNotificationEmail(
+    to,
+    subject,
+    `<div style="font-family:system-ui;color:#334155">
+      <h2 style="color:#0f766e">Lead needs attention</h2>
+      <p>${line}</p>
+      <p>Owner: <strong>${owner}</strong></p>
+      <p><a href="${appLink}" style="background:#0f766e;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none">Open lead in CRM</a></p>
+    </div>`
+  );
+  return true;
+}
+
 function replyEmailHtml(name: string, company: string, snippet: string, link: string) {
   return `
   <div style="font-family:system-ui;color:#334155">

@@ -1,8 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import { EmailEventType, LeadStage } from "@prisma/client";
+import { EmailEventType, LeadStage, Prisma } from "@prisma/client";
 
-export async function leadStageCounts() {
-  const rows = await prisma.lead.groupBy({ by: ["stage"], _count: { _all: true } });
+/** Optional lead scope (e.g. AGENT → { ownerId } ) applied to every metric. */
+type Scope = Prisma.LeadWhereInput;
+
+export async function leadStageCounts(scope: Scope = {}) {
+  const rows = await prisma.lead.groupBy({ by: ["stage"], where: scope, _count: { _all: true } });
   const map = new Map(rows.map((r) => [r.stage, r._count._all]));
   return Object.values(LeadStage).map((stage) => ({
     stage,
@@ -10,8 +13,11 @@ export async function leadStageCounts() {
   }));
 }
 
-export async function emailFunnel(since?: Date) {
-  const where = since ? { createdAt: { gte: since } } : {};
+export async function emailFunnel(since?: Date, scope: Scope = {}) {
+  const where: Prisma.EmailEventWhereInput = {
+    ...(since ? { createdAt: { gte: since } } : {}),
+    ...(Object.keys(scope).length ? { lead: scope } : {}),
+  };
   const rows = await prisma.emailEvent.groupBy({
     by: ["type"],
     where,
@@ -34,11 +40,11 @@ export async function emailFunnel(since?: Date) {
   };
 }
 
-export async function totals() {
+export async function totals(scope: Scope = {}) {
   const [leads, hot, suppressed, activeCampaigns] = await Promise.all([
-    prisma.lead.count(),
-    prisma.lead.count({ where: { hot: true } }),
-    prisma.lead.count({ where: { isSuppressed: true } }),
+    prisma.lead.count({ where: scope }),
+    prisma.lead.count({ where: { ...scope, hot: true } }),
+    prisma.lead.count({ where: { ...scope, isSuppressed: true } }),
     prisma.campaign.count({ where: { status: "ACTIVE" } }),
   ]);
   return { leads, hot, suppressed, activeCampaigns };

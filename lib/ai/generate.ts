@@ -1,20 +1,11 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { env } from "@/lib/env";
 import { fullName } from "@/lib/utils";
+import { chatJSON, isAiConfigured } from "@/lib/ai/client";
 import type { RenderLead } from "@/lib/email/render";
 
+export { isAiConfigured };
+
 /** Short, stable description of VrindaaCorp used to ground every generated email. */
-const COMPANY_CONTEXT = `VrindaaCorp Services is an integrated facility management company based in Greater Noida West, Uttar Pradesh, India. Services: hard services (HVAC, electrical, plumbing, preventive maintenance), cleaning & housekeeping, security, landscaping, energy management, corporate catering, business support, and compliance & safety. It serves corporate, healthcare, education, industrial, retail, hospitality, and residential clients.`;
-
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  if (!client) client = new Anthropic({ apiKey: env.ai.apiKey });
-  return client;
-}
-
-export function isAiConfigured(): boolean {
-  return Boolean(env.ai.apiKey);
-}
+export const COMPANY_CONTEXT = `VrindaaCorp Services is an integrated facility management company based in Greater Noida West, Uttar Pradesh, India. Services: hard services (HVAC, electrical, plumbing, preventive maintenance), cleaning & housekeeping, security, landscaping, energy management, corporate catering, business support, and compliance & safety. It serves corporate, healthcare, education, industrial, retail, hospitality, and residential clients.`;
 
 export type GeneratedEmail = { subject: string; html: string; generated: boolean };
 
@@ -52,39 +43,26 @@ Write a short, professional, personalized cold outreach email. Rules:
 Campaign step: ${stepLabel ?? "initial outreach"}.
 Brief / offer to convey: ${brief}`;
 
-  try {
-    const res = await getClient().messages.create({
-      model: env.ai.model,
-      max_tokens: 1200,
-      thinking: { type: "disabled" },
-      output_config: {
-        effort: "low",
-        format: {
-          type: "json_schema",
-          schema: {
-            type: "object",
-            properties: {
-              subject: { type: "string" },
-              bodyHtml: { type: "string" },
-            },
-            required: ["subject", "bodyHtml"],
-            additionalProperties: false,
-          },
-        },
+  const parsed = await chatJSON<{ subject: string; bodyHtml: string }>({
+    system,
+    user: userPrompt,
+    schema: {
+      type: "object",
+      properties: {
+        subject: { type: "string" },
+        bodyHtml: { type: "string" },
       },
-      system,
-      messages: [{ role: "user", content: userPrompt }],
-    } as Anthropic.MessageCreateParamsNonStreaming);
+      required: ["subject", "bodyHtml"],
+      additionalProperties: false,
+    },
+  });
 
-    const text = res.content.find((b) => b.type === "text");
-    if (!text || text.type !== "text") throw new Error("No text content returned");
-    const parsed = JSON.parse(text.text) as { subject: string; bodyHtml: string };
-    return { subject: parsed.subject.trim(), html: parsed.bodyHtml.trim(), generated: true };
-  } catch {
-    // Any failure (rate limit, refusal, parse error) → deterministic fallback so
-    // the campaign never stalls on a single lead.
+  if (!parsed?.subject || !parsed?.bodyHtml) {
+    // Provider unavailable / parse failure → deterministic fallback so a campaign
+    // never stalls on a single lead.
     return fallbackEmail(name, company, sector, brief);
   }
+  return { subject: parsed.subject.trim(), html: parsed.bodyHtml.trim(), generated: true };
 }
 
 function fallbackEmail(name: string, company: string, sector: string, brief: string): GeneratedEmail {

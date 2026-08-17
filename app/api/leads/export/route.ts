@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildLeadWhere } from "@/lib/leads-query";
+import { getSessionUser, leadScopeWhere } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
 // Export campaign-ready CSV, honouring the same filters as the leads list.
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let user;
+  try {
+    user = await getSessionUser();
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const where = buildLeadWhere(req.nextUrl.searchParams);
+  // Agents export only their own leads.
+  const where = { AND: [buildLeadWhere(req.nextUrl.searchParams), leadScopeWhere(user)] };
   const leads = await prisma.lead.findMany({ where, orderBy: { createdAt: "desc" } });
 
   const header = [

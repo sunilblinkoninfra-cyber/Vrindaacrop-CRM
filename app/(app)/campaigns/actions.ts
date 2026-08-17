@@ -1,16 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { segmentToWhere } from "@/lib/leads-query";
 import { enrollCampaignLeads } from "@/lib/outreach/enroll";
+import { requireRole } from "@/lib/rbac";
 import { CampaignStatus } from "@prisma/client";
 
+// Campaign management is restricted to Owner/Admin.
 async function requireUser() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  await requireRole("ADMIN", "OWNER");
 }
 
 export async function createCampaign(name: string) {
