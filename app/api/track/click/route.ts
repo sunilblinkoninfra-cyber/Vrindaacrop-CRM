@@ -19,17 +19,24 @@ export async function GET(req: NextRequest) {
   const target = req.nextUrl.searchParams.get("url");
   const sig = req.nextUrl.searchParams.get("sig");
 
-  let dest = "/";
+  // Default destination is the app root (absolute URL — NextResponse.redirect
+  // requires it in Node runtime).
+  const root = new URL("/", req.url).toString();
+  let dest = root;
+  let verified = false;
   if (leadId && target && sig) {
     try {
       const decoded = decodeURIComponent(target);
       const payload = `${leadId}|${enrollmentId ?? ""}|${decoded}`;
       if (verify(payload, sig)) {
         const u = new URL(decoded);
-        if (u.protocol === "http:" || u.protocol === "https:") dest = decoded;
+        if (u.protocol === "http:" || u.protocol === "https:") {
+          dest = decoded;
+          verified = true;
+        }
       }
     } catch {
-      // fall through to "/"
+      // fall through to the app root
     }
   }
 
@@ -39,7 +46,7 @@ export async function GET(req: NextRequest) {
         leadId,
         enrollmentId,
         type: EmailEventType.CLICKED,
-        metadata: dest !== "/" ? { url: dest } : { rejected: true },
+        metadata: verified ? { url: dest } : { rejected: true },
       });
     } catch {
       // never fail a tracking hit
