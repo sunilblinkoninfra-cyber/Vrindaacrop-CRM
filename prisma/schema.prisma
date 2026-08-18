@@ -234,6 +234,8 @@ model Enrollment {
   nextSendAt   DateTime?
   lastEventType EmailEventType? // denormalized furthest status for fast campaign views
   lastEventAt   DateTime?
+  retryCount    Int             @default(0) // send-error backoff counter
+  lastError     String?         // last send failure message (truncated)
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 

@@ -72,33 +72,39 @@ export async function ingestLead(input: IngestInput): Promise<IngestResult> {
   const rawGeo = input.city ?? "";
   const ownerId = await pickAssignee();
 
-  const lead = await prisma.lead.create({
-    data: {
-      firstName: input.firstName?.trim() || null,
-      lastName: input.lastName?.trim() || null,
-      company: input.company?.trim() || null,
-      email,
-      emailNormalized: normalizeEmail(email),
-      phone: input.phone?.trim() || null,
-      sector: normalizeSector(input.sector),
-      city: normalizeCity(rawGeo),
-      geography: toRegion(rawGeo),
-      source: input.channel,
-      sourceDetail: input.sourceDetail?.trim() || null,
-      validationStatus: statusMap[check],
-      ownerId,
-      // contractCheckedAt left null → enrichment cron will pick it up.
-    },
+  // Atomic: Lead + its Activity + the InboundLog together, so a partial failure
+  // never leaves an orphan Lead or a "created" log pointing at nothing.
+  const lead = await prisma.$transaction(async (tx) => {
+    const lead = await tx.lead.create({
+      data: {
+        firstName: input.firstName?.trim() || null,
+        lastName: input.lastName?.trim() || null,
+        company: input.company?.trim() || null,
+        email,
+        emailNormalized: normalizeEmail(email),
+        phone: input.phone?.trim() || null,
+        sector: normalizeSector(input.sector),
+        city: normalizeCity(rawGeo),
+        geography: toRegion(rawGeo),
+        source: input.channel,
+        sourceDetail: input.sourceDetail?.trim() || null,
+        validationStatus: statusMap[check],
+        ownerId,
+        // contractCheckedAt left null → enrichment cron will pick it up.
+      },
+    });
+    await tx.activity.create({
+      data: {
+        leadId: lead.id,
+        type: "import",
+        message: `Lead captured via ${input.channel}${ownerId ? " and auto-assigned" : ""}`,
+      },
+    });
+    await tx.inboundLeadLog.create({
+      data: { channel: input.channel, status: "created", payload: input.raw as object, leadId: lead.id },
+    });
+    return lead;
   });
-
-  await prisma.activity.create({
-    data: {
-      leadId: lead.id,
-      type: "import",
-      message: `Lead captured via ${input.channel}${ownerId ? " and auto-assigned" : ""}`,
-    },
-  });
-  await log("created", lead.id);
 
   return { status: "created", leadId: lead.id };
 }

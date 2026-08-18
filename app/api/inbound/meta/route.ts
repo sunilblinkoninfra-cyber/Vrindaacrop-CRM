@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { verifyMetaSignature, fetchMetaLead } from "@/lib/inbound/meta";
 import { ingestLead } from "@/lib/inbound/ingest";
+import { rateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -21,6 +22,9 @@ export async function GET(req: NextRequest) {
 
 /** Meta Lead Ads webhook (POST): a leadgen_id per new lead → Graph API fetch. */
 export async function POST(req: NextRequest) {
+  const limited = rateLimit(req, { bucket: "inbound-meta", limit: 60, windowSeconds: 60 });
+  if (limited) return limited;
+
   const rawBody = await req.text();
   if (!verifyMetaSignature(rawBody, req.headers.get("x-hub-signature-256"))) {
     return NextResponse.json({ error: "Bad signature" }, { status: 403 });

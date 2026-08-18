@@ -4,6 +4,11 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { normalizeEmail } from "@/lib/utils";
 
+// Bcrypt hash used as a compare target when a login email doesn't match any
+// user, so response time is constant (defeats email-enumeration timing attack).
+// Generated once at module load; cost=12 matches real user hashes.
+const DUMMY_HASH = bcrypt.hashSync("__no_such_user__", 12);
+
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
@@ -19,9 +24,12 @@ export const authOptions: NextAuthOptions = {
         const user = await prisma.user.findUnique({
           where: { email: normalizeEmail(credentials.email) },
         });
-        if (!user) return null;
-        const ok = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!ok) return null;
+        // Always run bcrypt.compare even when the user isn't found, so response
+        // time can't be used to enumerate valid emails. Compare against a fixed
+        // dummy hash of "invalid" to spend the same ~150ms of CPU.
+        const hash = user?.passwordHash ?? DUMMY_HASH;
+        const ok = await bcrypt.compare(credentials.password, hash);
+        if (!user || !ok) return null;
         return { id: user.id, email: user.email, name: user.name, role: user.role };
       },
     }),

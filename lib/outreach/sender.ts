@@ -90,6 +90,8 @@ export async function runSender(limit?: number): Promise<SendBatchResult> {
     });
 
     try {
+      // Actual SES call happens BEFORE the transaction (it's a network side
+      // effect; we don't want to hold a DB tx open across it).
       const { messageId } = await sendEmail({
         to: lead.email,
         subject: renderedSubject,
@@ -98,50 +100,54 @@ export async function runSender(limit?: number): Promise<SendBatchResult> {
         tags: { leadId: lead.id, enrollmentId: enr.id, step: String(step.order) },
       });
 
-      await prisma.emailEvent.create({
-        data: {
-          leadId: lead.id,
-          enrollmentId: enr.id,
-          stepOrder: step.order,
-          type: EmailEventType.SENT,
-          messageId,
-          subjectVariant: variant,
-        },
-      });
-      await prisma.activity.create({
-        data: { leadId: lead.id, type: "email_sent", message: `Step ${step.order + 1} sent: "${renderedSubject}"` },
-      });
-
-      // Advance stage on first contact.
-      if (lead.stage === "NEW") {
-        await prisma.lead.update({ where: { id: lead.id }, data: { stage: "CONTACTED" } });
-      }
-
-      // Denormalized campaign status: never regress an already-engaged lead.
+      // Wrap all bookkeeping in a single transaction so partial failures (e.g.
+      // DB blip after send succeeds) can't leave the enrollment in a state
+      // where we re-send the same email on the next cron run.
       const lastEventType = isFurther(enr.lastEventType, EmailEventType.SENT)
         ? EmailEventType.SENT
         : enr.lastEventType;
-
-      // Schedule next step or complete.
       const nextStep = enr.campaign.steps.find((s) => s.order === enr.currentStep + 1);
-      if (nextStep) {
-        const nextSendAt = new Date();
-        nextSendAt.setDate(nextSendAt.getDate() + nextStep.delayDays);
-        await prisma.enrollment.update({
+      const nextSendAt = nextStep ? new Date(Date.now() + nextStep.delayDays * 86_400_000) : null;
+
+      await prisma.$transaction([
+        prisma.emailEvent.create({
+          data: {
+            leadId: lead.id,
+            enrollmentId: enr.id,
+            stepOrder: step.order,
+            type: EmailEventType.SENT,
+            messageId,
+            subjectVariant: variant,
+          },
+        }),
+        prisma.activity.create({
+          data: { leadId: lead.id, type: "email_sent", message: `Step ${step.order + 1} sent: "${renderedSubject}"` },
+        }),
+        ...(lead.stage === "NEW"
+          ? [prisma.lead.update({ where: { id: lead.id }, data: { stage: "CONTACTED" } })]
+          : []),
+        prisma.enrollment.update({
           where: { id: enr.id },
-          data: { currentStep: enr.currentStep + 1, nextSendAt, lastEventType, lastEventAt: new Date() },
-        });
-      } else {
-        await prisma.enrollment.update({
-          where: { id: enr.id },
-          data: { state: "COMPLETED", nextSendAt: null, lastEventType, lastEventAt: new Date() },
-        });
-      }
+          data: nextStep
+            ? { currentStep: enr.currentStep + 1, nextSendAt, lastEventType, lastEventAt: new Date(), retryCount: 0, lastError: null }
+            : { state: "COMPLETED", nextSendAt: null, lastEventType, lastEventAt: new Date(), retryCount: 0, lastError: null },
+        }),
+      ]);
       sent++;
     } catch (e) {
-      // Leave enrollment active for retry next run; log.
+      // Exponential backoff on repeated per-lead failures. Pause after 5 tries
+      // so a permanently-failing recipient doesn't get retried forever.
+      const msg = (e as Error).message.slice(0, 500);
+      const nextRetry = (enr.retryCount ?? 0) + 1;
+      const backoffMs = [5, 30, 180, 720, 1440][Math.min(nextRetry - 1, 4)] * 60_000;
+      await prisma.enrollment.update({
+        where: { id: enr.id },
+        data: nextRetry >= 5
+          ? { state: "PAUSED", pausedReason: "send_failed", nextSendAt: null, retryCount: nextRetry, lastError: msg }
+          : { nextSendAt: new Date(Date.now() + backoffMs), retryCount: nextRetry, lastError: msg },
+      });
       await prisma.jobRun.create({
-        data: { job: "sender", ok: false, finishedAt: new Date(), detail: `send failed for ${lead.email}: ${(e as Error).message}` },
+        data: { job: "sender", ok: false, finishedAt: new Date(), detail: `send failed for ${lead.email} (attempt ${nextRetry}): ${msg}` },
       });
       skipped++;
     }

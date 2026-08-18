@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { fullName } from "@/lib/utils";
+import { sign } from "@/lib/hmac";
 
 export type RenderLead = {
   id: string;
@@ -45,10 +46,15 @@ export function injectTracking(html: string, opts: { leadId: string; enrollmentI
   const q = (extra: Record<string, string>) =>
     new URLSearchParams({ lead: opts.leadId, ...(opts.enrollmentId ? { e: opts.enrollmentId } : {}), ...extra }).toString();
 
-  // Rewrite links (skip mailto/unsubscribe/anchor links).
+  // Rewrite links (skip mailto/unsubscribe/anchor links). Each rewritten URL is
+  // HMAC-signed so /api/track/click cannot be abused as an open-redirect —
+  // attackers with a valid lead+enrollment id can't craft a redirect to a URL
+  // we didn't originally send.
   let out = html.replace(/href\s*=\s*"([^"]+)"/gi, (m, url: string) => {
     if (/^(mailto:|#|\{\{)/i.test(url) || url.includes("/api/unsubscribe")) return m;
-    const redirect = `${base}/api/track/click?${q({ url: encodeURIComponent(url) })}`;
+    const encoded = encodeURIComponent(url);
+    const sig = sign(`${opts.leadId}|${opts.enrollmentId ?? ""}|${url}`);
+    const redirect = `${base}/api/track/click?${q({ url: encoded, sig })}`;
     return `href="${redirect}"`;
   });
 

@@ -1,9 +1,18 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import DOMPurify from "isomorphic-dompurify";
 import { Button, Card, Input, Textarea } from "@/components/ui";
 import { applyTokens } from "@/lib/email/render";
 import { upsertTemplate, deleteTemplate } from "./actions";
+
+// Whitelist safe email-HTML tags/attrs; strips <script>, event handlers, javascript: URLs.
+const sanitize = (html: string) =>
+  DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "a", "ul", "ol", "li", "h1", "h2", "h3", "blockquote", "span", "div"],
+    ALLOWED_ATTR: ["href", "style", "title", "target", "rel"],
+    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|#|\/)/i,
+  });
 
 type Template = {
   id: string;
@@ -153,7 +162,7 @@ export function TemplateManager({ templates }: { templates: Template[] }) {
             <div className="mb-2 text-xs text-slate-500">Subject: {aiPreview.subject}</div>
             <div
               className="prose prose-sm max-w-none rounded border border-slate-100 p-3 text-sm"
-              dangerouslySetInnerHTML={{ __html: aiPreview.html }}
+              dangerouslySetInnerHTML={{ __html: sanitize(aiPreview.html) }}
             />
           </Card>
         )}
@@ -166,7 +175,7 @@ export function TemplateManager({ templates }: { templates: Template[] }) {
           <div
             className="prose prose-sm max-w-none rounded border border-slate-100 p-3 text-sm"
             dangerouslySetInnerHTML={{
-              __html: applyTokens(editing.html || "<em>Nothing to preview yet.</em>", SAMPLE_LEAD),
+              __html: sanitize(applyTokens(editing.html || "<em>Nothing to preview yet.</em>", SAMPLE_LEAD)),
             }}
           />
         </Card>

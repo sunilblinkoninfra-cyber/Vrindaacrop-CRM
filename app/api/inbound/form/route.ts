@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { ingestLead } from "@/lib/inbound/ingest";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,9 @@ export function OPTIONS() {
  * plus a honeypot field ("website") that real users never fill.
  */
 export async function POST(req: NextRequest) {
+  const limited = rateLimit(req, { bucket: "inbound-form", limit: 20, windowSeconds: 60 });
+  if (limited) return limited;
+
   const secret = env.inbound.formSecret;
   if (secret) {
     const header = req.headers.get("x-form-secret");

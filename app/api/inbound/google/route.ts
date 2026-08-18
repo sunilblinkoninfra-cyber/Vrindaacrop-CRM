@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { mapGoogleLead } from "@/lib/inbound/google";
 import { ingestLead } from "@/lib/inbound/ingest";
+import { rateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -9,6 +10,9 @@ export const dynamic = "force-dynamic";
 
 /** Google Ads Lead Form webhook. Verified via the google_key configured in Ads. */
 export async function POST(req: NextRequest) {
+  const limited = rateLimit(req, { bucket: "inbound-google", limit: 60, windowSeconds: 60 });
+  if (limited) return limited;
+
   let body: any;
   try {
     body = await req.json();
