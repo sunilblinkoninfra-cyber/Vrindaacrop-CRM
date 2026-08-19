@@ -3,6 +3,7 @@ import { env } from "@/lib/env";
 import { recordEvent, findLeadForEvent, suppressLead } from "@/lib/outreach/events";
 import { handleReply } from "@/lib/outreach/reply";
 import { prisma } from "@/lib/prisma";
+import { rejectOversized } from "@/lib/validation/inbound";
 import { EmailEventType, SuppressionReason } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -23,6 +24,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
   }
+
+  // SES/SNS payloads can legitimately be larger than a form submission
+  // (bounce/complaint notifications can list many recipients).
+  const oversized = rejectOversized(req, 512 * 1024);
+  if (oversized) return oversized;
 
   let envelope: any;
   try {

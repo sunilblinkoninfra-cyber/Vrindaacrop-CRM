@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { ingestLead } from "@/lib/inbound/ingest";
 import { rateLimit } from "@/lib/rate-limit";
+import { rejectOversized, websiteFormSchema } from "@/lib/validation/inbound";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,9 @@ export async function POST(req: NextRequest) {
   const limited = rateLimit(req, { bucket: "inbound-form", limit: 20, windowSeconds: 60 });
   if (limited) return limited;
 
+  const oversized = rejectOversized(req);
+  if (oversized) return oversized;
+
   const secret = env.inbound.formSecret;
   if (secret) {
     const header = req.headers.get("x-form-secret");
@@ -34,35 +38,38 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  let body: Record<string, unknown>;
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400, headers: cors });
   }
 
-  // Honeypot: silently accept but drop obvious bots.
-  if (typeof body.website === "string" && body.website.trim()) {
-    return NextResponse.json({ ok: true }, { headers: cors });
+  const parsed = websiteFormSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid input", details: parsed.error.flatten().fieldErrors },
+      { status: 400, headers: cors }
+    );
   }
+  const body = parsed.data;
 
-  const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : undefined);
-  const email = str("email");
-  if (!email) {
-    return NextResponse.json({ error: "email is required" }, { status: 400, headers: cors });
+  // Honeypot: silently accept but drop obvious bots.
+  if (body.website) {
+    return NextResponse.json({ ok: true }, { headers: cors });
   }
 
   const result = await ingestLead({
     channel: "website_form",
-    email,
-    firstName: str("firstName") ?? str("name"),
-    lastName: str("lastName"),
-    company: str("company"),
-    phone: str("phone"),
-    sector: str("sector"),
-    city: str("city"),
-    sourceDetail: str("source") ?? str("page"),
-    raw: body,
+    email: body.email,
+    firstName: body.firstName ?? body.name,
+    lastName: body.lastName,
+    company: body.company,
+    phone: body.phone,
+    sector: body.sector,
+    city: body.city,
+    sourceDetail: body.source ?? body.page,
+    raw: rawBody,
   });
 
   return NextResponse.json({ ok: result.status !== "error", ...result }, { headers: cors });

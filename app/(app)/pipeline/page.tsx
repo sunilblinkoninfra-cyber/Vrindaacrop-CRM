@@ -12,16 +12,23 @@ const PER_COLUMN = 50;
 export default async function PipelinePage() {
   const user = await getSessionUser();
   const scope = leadScopeWhere(user);
-  const [leads, counts] = await Promise.all([
-    prisma.lead.findMany({
-      where: { stage: { in: STAGES }, ...scope },
-      orderBy: { updatedAt: "desc" },
-    }),
+
+  // One bounded query per stage (take: PER_COLUMN) run in parallel, instead of
+  // loading every lead across all stages into memory and slicing in JS — that
+  // approach pulls the whole table on a large lead base.
+  const [counts, ...stageLeads] = await Promise.all([
     prisma.lead.groupBy({ by: ["stage"], where: scope, _count: { _all: true } }),
+    ...STAGES.map((stage) =>
+      prisma.lead.findMany({
+        where: { stage, ...scope },
+        orderBy: { updatedAt: "desc" },
+        take: PER_COLUMN,
+      })
+    ),
   ]);
 
   const countMap = new Map(counts.map((c) => [c.stage, c._count._all]));
-  const byStage = new Map(STAGES.map((s) => [s, leads.filter((l) => l.stage === s).slice(0, PER_COLUMN)]));
+  const byStage = new Map(STAGES.map((s, i) => [s, stageLeads[i]]));
 
   return (
     <div className="space-y-4">

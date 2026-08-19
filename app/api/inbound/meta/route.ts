@@ -3,6 +3,7 @@ import { env } from "@/lib/env";
 import { verifyMetaSignature, fetchMetaLead } from "@/lib/inbound/meta";
 import { ingestLead } from "@/lib/inbound/ingest";
 import { rateLimit } from "@/lib/rate-limit";
+import { rejectOversizedText, ingestInputSchema } from "@/lib/validation/inbound";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -26,6 +27,9 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   const rawBody = await req.text();
+  const oversized = rejectOversizedText(rawBody);
+  if (oversized) return oversized;
+
   if (!verifyMetaSignature(rawBody, req.headers.get("x-hub-signature-256"))) {
     return NextResponse.json({ error: "Bad signature" }, { status: 403 });
   }
@@ -48,15 +52,24 @@ export async function POST(req: NextRequest) {
   let created = 0;
   for (const c of changes) {
     try {
-      const input = await fetchMetaLead(c.leadgenId, c.formId);
-      if (input) {
-        const r = await ingestLead(input);
-        if (r.status === "created") created++;
-      } else {
+      const mapped = await fetchMetaLead(c.leadgenId, c.formId);
+      if (!mapped) {
         await prisma.inboundLeadLog.create({
           data: { channel: "meta_ads", status: "error", payload: c as object, note: "Graph fetch failed / no email" },
         });
+        continue;
       }
+
+      const parsed = ingestInputSchema.safeParse(mapped);
+      if (!parsed.success) {
+        await prisma.inboundLeadLog.create({
+          data: { channel: "meta_ads", status: "invalid", payload: c as object, note: "Failed field validation" },
+        });
+        continue;
+      }
+
+      const r = await ingestLead({ ...mapped, ...parsed.data });
+      if (r.status === "created") created++;
     } catch (e) {
       await prisma.inboundLeadLog.create({
         data: { channel: "meta_ads", status: "error", payload: c as object, note: (e as Error).message },

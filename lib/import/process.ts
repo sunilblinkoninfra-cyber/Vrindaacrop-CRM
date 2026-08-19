@@ -20,6 +20,27 @@ export type ProcessResult = {
   invalid: number;
 };
 
+const EXISTENCE_CHECK_CHUNK = 2000;
+
+/**
+ * Look up which of the given normalized emails already exist as leads, in
+ * chunks — bounded by the size of the current import file rather than the
+ * total leads table. At 100k+ existing leads, loading every email into memory
+ * (the old approach) allocates tens of MB for a set we mostly never use.
+ */
+async function findExistingEmails(normalizedEmails: string[]): Promise<Set<string>> {
+  const existing = new Set<string>();
+  for (let i = 0; i < normalizedEmails.length; i += EXISTENCE_CHECK_CHUNK) {
+    const chunk = normalizedEmails.slice(i, i + EXISTENCE_CHECK_CHUNK);
+    const rows = await prisma.lead.findMany({
+      where: { emailNormalized: { in: chunk } },
+      select: { emailNormalized: true },
+    });
+    for (const r of rows) existing.add(r.emailNormalized);
+  }
+  return existing;
+}
+
 /**
  * Process a MAPPED import batch: for each staged row, map source columns to
  * target fields, deduplicate (in-batch + against existing leads), validate the
@@ -36,10 +57,18 @@ export async function processImportBatch(batchId: string): Promise<ProcessResult
 
   await prisma.importBatch.update({ where: { id: batchId }, data: { status: "PROCESSING" } });
 
-  // Existing emails to dedup against.
-  const existing = new Set(
-    (await prisma.lead.findMany({ select: { emailNormalized: true } })).map((l) => l.emailNormalized)
-  );
+  // Only check existence for emails actually present in this import file —
+  // scales with the file size, not with however many leads are already in
+  // the database.
+  const emailColumn = mapping.email;
+  const candidateKeys = batch.rows
+    .map((row) => {
+      const raw = row.raw as Record<string, string>;
+      const email = (raw[emailColumn] ?? "").trim();
+      return email ? emailKey(email) : null;
+    })
+    .filter((k): k is string => k !== null);
+  const existing = await findExistingEmails([...new Set(candidateKeys)]);
   const seenThisBatch = new Set<string>();
 
   let imported = 0;
