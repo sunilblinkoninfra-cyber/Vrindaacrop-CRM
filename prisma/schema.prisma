@@ -56,6 +56,8 @@ enum ValidationStatus {
   VALID
   INVALID
   RISKY
+  DISPOSABLE // known throwaway/temp-mail domain
+  CATCH_ALL  // domain accepts any mailbox; SMTP result for the specific address is untrustworthy
 }
 
 enum ContractStatus {
@@ -79,6 +81,9 @@ model Lead {
   sourceDetail     String?          // form id / adset / campaign identifier
   stage            LeadStage        @default(NEW)
   validationStatus ValidationStatus @default(UNKNOWN)
+  validationReason String?          // short human-readable reason, e.g. "disposable email domain"
+  validationCheckedAt DateTime?     // last time any validation layer touched this lead
+  smtpCheckedAt    DateTime?        // null = SMTP probe never attempted (distinct from "attempted, inconclusive")
   isSuppressed     Boolean          @default(false)
   hot              Boolean          @default(false) // "Hot — Awaiting Owner Action"
   ownerId          String?
@@ -113,6 +118,16 @@ model Lead {
   @@index([ownerId])
   @@index([contractCheckedAt])
   @@index([contractExpiry])
+  @@index([smtpCheckedAt])
+}
+
+// Per-domain cache for the (expensive) SMTP catch-all probe, so we don't
+// re-probe the same domain once per lead.
+model DomainReputation {
+  domain        String   @id
+  isCatchAll    Boolean  @default(false)
+  mxHost        String?
+  lastCheckedAt DateTime @default(now())
 }
 
 model Tag {

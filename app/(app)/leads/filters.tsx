@@ -55,6 +55,8 @@ export function LeadFilters() {
         <option value="RISKY">Risky</option>
         <option value="INVALID">Invalid</option>
         <option value="UNKNOWN">Unknown</option>
+        <option value="DISPOSABLE">Disposable</option>
+        <option value="CATCH_ALL">Catch-all</option>
       </Select>
     </div>
   );

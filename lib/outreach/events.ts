@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeEmail } from "@/lib/utils";
 import { pauseEnrollmentsForLead } from "@/lib/outreach/enroll";
 import { isFurther } from "@/lib/outreach/status";
-import { EmailEventType, SuppressionReason, Prisma } from "@prisma/client";
+import { EmailEventType, SuppressionReason, ValidationStatus, Prisma } from "@prisma/client";
 
 /** Record an email event for a lead and (optionally) enrollment. */
 export async function recordEvent(args: {
@@ -37,7 +37,13 @@ export async function recordEvent(args: {
   }
 }
 
-/** Add/refresh a global suppression entry and flag the lead. */
+/**
+ * Add/refresh a global suppression entry and flag the lead. A real hard bounce
+ * is stronger evidence than anything the local/SMTP validation layers could
+ * guess, so it also permanently downgrades validationStatus to INVALID. A
+ * complaint means "don't email me" (consent), not "this address doesn't
+ * exist" (deliverability) — it leaves validationStatus untouched.
+ */
 export async function suppressLead(leadId: string, email: string, reason: SuppressionReason) {
   const emailNormalized = normalizeEmail(email);
   await prisma.suppression.upsert({
@@ -45,7 +51,19 @@ export async function suppressLead(leadId: string, email: string, reason: Suppre
     update: { reason },
     create: { emailNormalized, reason },
   });
-  await prisma.lead.update({ where: { id: leadId }, data: { isSuppressed: true } });
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: {
+      isSuppressed: true,
+      ...(reason === SuppressionReason.HARD_BOUNCE
+        ? {
+            validationStatus: ValidationStatus.INVALID,
+            validationReason: "SES hard bounce",
+            validationCheckedAt: new Date(),
+          }
+        : {}),
+    },
+  });
   await pauseEnrollmentsForLead(leadId, reason.toLowerCase());
 }
 

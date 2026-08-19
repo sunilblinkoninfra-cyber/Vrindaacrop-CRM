@@ -18,6 +18,15 @@ export const env = {
     apiKey: process.env.EMAIL_VERIFIER_API_KEY ?? "",
   },
 
+  validation: {
+    // Kill switch for the SMTP-probe batch job — Vercel/AWS blocks outbound
+    // port 25 by default, so this can be turned off without a redeploy once
+    // that's confirmed to be a dead end in production. Local checks (syntax,
+    // disposable-domain, role, MX, typo) always run regardless of this flag.
+    smtpProbeEnabled: process.env.SMTP_PROBE_ENABLED !== "false",
+    revalidateDays: parseInt(process.env.EMAIL_REVALIDATE_DAYS ?? "30", 10),
+  },
+
   ai: {
     // "anthropic" (hosted) or "local" (OpenAI-compatible endpoint, e.g. Ollama/vLLM/LM Studio)
     provider: (process.env.AI_PROVIDER ?? "anthropic") as "anthropic" | "local",

@@ -27,6 +27,12 @@ export function buildLeadWhere(params: URLSearchParams): Prisma.LeadWhereInput {
   const validation = params.get("validation");
   if (validation && validation in ValidationStatus) where.validationStatus = validation as ValidationStatus;
 
+  const validationNot = params.get("validationNot");
+  if (validationNot) {
+    const excluded = validationNot.split(",").filter((v) => v in ValidationStatus) as ValidationStatus[];
+    if (excluded.length) where.validationStatus = { notIn: excluded };
+  }
+
   const hot = params.get("hot");
   if (hot === "1") where.hot = true;
 
@@ -56,7 +62,8 @@ export function buildLeadWhere(params: URLSearchParams): Prisma.LeadWhereInput {
 export function segmentToWhere(segment: Record<string, string> | null | undefined): Prisma.LeadWhereInput {
   const params = new URLSearchParams();
   if (segment) for (const [k, v] of Object.entries(segment)) if (v) params.set(k, v);
-  // Segments should never target suppressed leads.
+  // Segments should never target suppressed or known-bad-email leads.
   params.set("suppressed", "0");
+  params.set("validationNot", "INVALID,DISPOSABLE");
   return buildLeadWhere(params);
 }

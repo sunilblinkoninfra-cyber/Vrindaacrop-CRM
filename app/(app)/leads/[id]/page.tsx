@@ -177,8 +177,25 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
               Region: <span className="text-slate-700">{lead.geography ?? "—"}</span>
               <br />
               Source: <span className="text-slate-700">{lead.source ?? "—"}</span>
-              <br />
-              Validation: <span className="text-slate-700">{lead.validationStatus}</span>
+            </div>
+          </Card>
+
+          <Card className="space-y-2">
+            <h2 className="text-sm font-semibold text-slate-700">Email validation</h2>
+            <Badge tone={lead.validationStatus}>{lead.validationStatus}</Badge>
+            {lead.validationReason && (
+              <p className="text-xs text-slate-500">{lead.validationReason}</p>
+            )}
+            <div className="text-[11px] text-slate-400">
+              {lead.validationCheckedAt
+                ? `Last checked ${format(lead.validationCheckedAt, "dd MMM yyyy HH:mm")}`
+                : "Not yet checked"}
+              {lead.smtpCheckedAt && (
+                <>
+                  <br />
+                  SMTP probe: {format(lead.smtpCheckedAt, "dd MMM yyyy HH:mm")}
+                </>
+              )}
             </div>
           </Card>
 

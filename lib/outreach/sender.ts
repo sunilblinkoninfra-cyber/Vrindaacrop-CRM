@@ -51,6 +51,16 @@ export async function runSender(limit?: number): Promise<SendBatchResult> {
       skipped++;
       continue;
     }
+    // A lead can be reclassified INVALID/DISPOSABLE after enrollment (SES
+    // bounce feedback, or the SMTP revalidation cron) — stop sending to it.
+    if (lead.validationStatus === "INVALID" || lead.validationStatus === "DISPOSABLE") {
+      await prisma.enrollment.update({
+        where: { id: enr.id },
+        data: { state: "PAUSED", pausedReason: "invalid_email", nextSendAt: null },
+      });
+      skipped++;
+      continue;
+    }
     if (enr.campaign.status !== "ACTIVE") {
       skipped++;
       continue;

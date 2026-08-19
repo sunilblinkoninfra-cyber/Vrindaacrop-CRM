@@ -74,6 +74,13 @@ const stageStyles: Record<string, string> = {
   PROPOSAL_SENT: "bg-indigo-50 text-indigo-700 ring-indigo-200",
   WON: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   LOST: "bg-red-50 text-red-700 ring-red-200",
+  // Email validation statuses (keys don't collide with LeadStage above).
+  VALID: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  UNKNOWN: "bg-slate-100 text-slate-600 ring-slate-200",
+  RISKY: "bg-amber-50 text-amber-700 ring-amber-200",
+  INVALID: "bg-red-50 text-red-700 ring-red-200",
+  DISPOSABLE: "bg-orange-50 text-orange-700 ring-orange-200",
+  CATCH_ALL: "bg-violet-50 text-violet-700 ring-violet-200",
 };
 
 export function Badge({

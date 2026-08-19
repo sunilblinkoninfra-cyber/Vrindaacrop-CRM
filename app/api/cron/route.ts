@@ -4,6 +4,7 @@ import { runEscalation } from "@/lib/outreach/escalation";
 import { runCompanyAlerts } from "@/lib/outreach/company-alerts";
 import { runContractReminders } from "@/lib/outreach/contract-reminders";
 import { runEnrichment } from "@/lib/ai/contract";
+import { runEmailRevalidation } from "@/lib/outreach/revalidate-leads";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -17,7 +18,8 @@ export const maxDuration = 300; // allow long batch sends (Vercel Pro)
  *   - fires 48h owner escalations,
  *   - sends 24h "unattended" alerts to the company inbox,
  *   - enriches pending leads with contract intelligence,
- *   - fires 1-month-before contract-renewal reminders.
+ *   - fires 1-month-before contract-renewal reminders,
+ *   - re-checks stale/unverified leads via SMTP mailbox probing.
  *
  * Protected by CRON_SECRET (Vercel sends it as `Authorization: Bearer <secret>`;
  * external cron can use `?token=<secret>`).
@@ -38,6 +40,7 @@ async function handle(req: NextRequest) {
   const company = await runCompanyAlerts();
   const enrichment = await runEnrichment(10);
   const contracts = await runContractReminders();
+  const revalidation = await runEmailRevalidation();
 
   await prisma.jobRun.create({
     data: {
@@ -45,11 +48,11 @@ async function handle(req: NextRequest) {
       startedAt: started,
       finishedAt: new Date(),
       ok: true,
-      detail: `sent=${sender.sent} escalated=${escalation.escalated} company=${company.replies}/${company.news} enriched=${enrichment.processed} contractReminders=${contracts.reminded}`,
+      detail: `sent=${sender.sent} escalated=${escalation.escalated} company=${company.replies}/${company.news} enriched=${enrichment.processed} contractReminders=${contracts.reminded} revalidated=${revalidation.processed}/${revalidation.changed}`,
     },
   });
 
-  return NextResponse.json({ ok: true, sender, escalation, company, enrichment, contracts });
+  return NextResponse.json({ ok: true, sender, escalation, company, enrichment, contracts, revalidation });
 }
 
 export const GET = handle;

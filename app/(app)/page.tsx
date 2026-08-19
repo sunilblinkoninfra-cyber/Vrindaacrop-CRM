@@ -2,7 +2,7 @@ import { Card, PageHeader, StatCard } from "@/components/ui";
 import { totals, emailFunnel, leadStageCounts } from "@/lib/metrics";
 import { getSessionUser, leadScopeWhere } from "@/lib/rbac";
 import { STAGE_LABELS } from "@/lib/constants";
-import { IconLeads, IconFire, IconCampaigns, IconReports } from "@/components/icons";
+import { IconLeads, IconFire, IconCampaigns, IconReports, IconContract } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +39,12 @@ export default async function DashboardPage() {
     <div>
       <PageHeader title="Dashboard" subtitle="Overview of leads, outreach & pipeline health." />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Total leads" value={t.leads.toLocaleString()} icon={<IconLeads />} accent="text-brand" />
         <StatCard label="Hot leads" value={t.hot} hint="Awaiting owner action" icon={<IconFire />} accent="text-amber-500" />
         <StatCard label="Active campaigns" value={t.activeCampaigns} icon={<IconCampaigns />} accent="text-indigo-500" />
         <StatCard label="Suppressed" value={t.suppressed} hint="Bounced / unsubscribed" icon={<IconReports />} accent="text-slate-400" />
+        <StatCard label="Invalid/disposable" value={t.invalidEmails} hint="Excluded from sending" icon={<IconContract />} accent="text-red-500" />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">

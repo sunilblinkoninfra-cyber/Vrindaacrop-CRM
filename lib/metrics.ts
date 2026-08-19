@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { EmailEventType, LeadStage, Prisma } from "@prisma/client";
+import { EmailEventType, LeadStage, ValidationStatus, Prisma } from "@prisma/client";
 
 /** Optional lead scope (e.g. AGENT → { ownerId } ) applied to every metric. */
 type Scope = Prisma.LeadWhereInput;
@@ -41,11 +41,14 @@ export async function emailFunnel(since?: Date, scope: Scope = {}) {
 }
 
 export async function totals(scope: Scope = {}) {
-  const [leads, hot, suppressed, activeCampaigns] = await Promise.all([
+  const [leads, hot, suppressed, activeCampaigns, invalidEmails] = await Promise.all([
     prisma.lead.count({ where: scope }),
     prisma.lead.count({ where: { ...scope, hot: true } }),
     prisma.lead.count({ where: { ...scope, isSuppressed: true } }),
     prisma.campaign.count({ where: { status: "ACTIVE" } }),
+    prisma.lead.count({
+      where: { ...scope, validationStatus: { in: [ValidationStatus.INVALID, ValidationStatus.DISPOSABLE] } },
+    }),
   ]);
-  return { leads, hot, suppressed, activeCampaigns };
+  return { leads, hot, suppressed, activeCampaigns, invalidEmails };
 }

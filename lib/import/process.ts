@@ -1,17 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { normalizeEmail } from "@/lib/utils";
-import { validateEmail } from "@/lib/import/validate";
+import { validateEmail, localCheckToValidationStatus } from "@/lib/import/validate";
 import { emailKey } from "@/lib/import/dedup";
 import { normalizeSector, normalizeCity, toRegion } from "@/lib/import/normalize";
 import { TargetField } from "@/lib/import/parse";
-import { ValidationStatus } from "@prisma/client";
-
-const statusMap: Record<string, ValidationStatus> = {
-  valid: ValidationStatus.VALID,
-  invalid: ValidationStatus.INVALID,
-  risky: ValidationStatus.RISKY,
-  unknown: ValidationStatus.UNKNOWN,
-};
 
 export type ProcessResult = {
   total: number;
@@ -92,8 +84,8 @@ export async function processImportBatch(batchId: string): Promise<ProcessResult
       continue;
     }
 
-    const check = await validateEmail(email);
-    if (check === "invalid") {
+    const local = await validateEmail(email);
+    if (local.check === "invalid") {
       invalid++;
       await prisma.importRow.update({ where: { id: row.id }, data: { status: "invalid", note: "Failed email validation" } });
       continue;
@@ -112,7 +104,11 @@ export async function processImportBatch(batchId: string): Promise<ProcessResult
         city: normalizeCity(rawGeo),
         geography: toRegion(rawGeo),
         source: get("source") || batch.filename,
-        validationStatus: statusMap[check],
+        validationStatus: localCheckToValidationStatus[local.check],
+        validationReason: local.typoSuggestion
+          ? `${local.reason ?? ""}${local.reason ? "; " : ""}possible typo of ${local.typoSuggestion}`
+          : local.reason,
+        validationCheckedAt: new Date(),
       },
     });
     seenThisBatch.add(key);

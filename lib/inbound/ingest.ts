@@ -1,17 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { normalizeEmail } from "@/lib/utils";
-import { validateEmail } from "@/lib/import/validate";
+import { validateEmail, localCheckToValidationStatus } from "@/lib/import/validate";
 import { emailKey } from "@/lib/import/dedup";
 import { normalizeSector, normalizeCity, toRegion } from "@/lib/import/normalize";
 import { pickAssignee } from "@/lib/assign";
-import { ValidationStatus } from "@prisma/client";
-
-const statusMap: Record<string, ValidationStatus> = {
-  valid: ValidationStatus.VALID,
-  invalid: ValidationStatus.INVALID,
-  risky: ValidationStatus.RISKY,
-  unknown: ValidationStatus.UNKNOWN,
-};
 
 export type IngestInput = {
   channel: "website_form" | "meta_ads" | "google_ads";
@@ -63,8 +55,8 @@ export async function ingestLead(input: IngestInput): Promise<IngestResult> {
     return { status: "duplicate", leadId: existing.id, note: "Duplicate email" };
   }
 
-  const check = await validateEmail(email);
-  if (check === "invalid") {
+  const local = await validateEmail(email);
+  if (local.check === "invalid") {
     await log("invalid", undefined, "Failed email validation");
     return { status: "invalid", note: "Failed email validation" };
   }
@@ -88,7 +80,11 @@ export async function ingestLead(input: IngestInput): Promise<IngestResult> {
         geography: toRegion(rawGeo),
         source: input.channel,
         sourceDetail: input.sourceDetail?.trim() || null,
-        validationStatus: statusMap[check],
+        validationStatus: localCheckToValidationStatus[local.check],
+        validationReason: local.typoSuggestion
+          ? `${local.reason ?? ""}${local.reason ? "; " : ""}possible typo of ${local.typoSuggestion}`
+          : local.reason,
+        validationCheckedAt: new Date(),
         ownerId,
         // contractCheckedAt left null → enrichment cron will pick it up.
       },

@@ -89,7 +89,9 @@ export default async function LeadsPage({
                 <td className="px-4 py-2">
                   <Badge tone={l.stage}>{STAGE_LABELS[l.stage]}</Badge>
                 </td>
-                <td className="px-4 py-2 text-slate-600">{l.validationStatus}</td>
+                <td className="px-4 py-2" title={l.validationReason ?? undefined}>
+                  <Badge tone={l.validationStatus}>{l.validationStatus}</Badge>
+                </td>
                 <td className="px-4 py-2 text-slate-600">{l.owner?.name ?? "—"}</td>
               </tr>
             ))}
