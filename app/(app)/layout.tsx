@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
@@ -55,13 +56,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
         <div className="border-t border-slate-200 p-3">
           <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
-              {initials}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium text-slate-700">{session.user?.name ?? "User"}</div>
-              <div className="truncate text-[11px] text-slate-400">{email}</div>
-            </div>
+            <Link href="/account" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg hover:opacity-80" title="Account settings">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-medium text-slate-700">{session.user?.name ?? "User"}</div>
+                <div className="truncate text-[11px] text-slate-400">{email}</div>
+              </div>
+            </Link>
             <SignOutButton />
           </div>
         </div>
