@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, isOwnerOrAdmin } from "@/lib/rbac";
 import { Card, PageHeader } from "@/components/ui";
-import { CreateUserForm, UserRoleControl } from "./users-client";
+import { CreateUserForm, UserRoleControl, DeleteUserButton } from "./users-client";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +41,7 @@ export default async function UsersPage() {
                 <th>Email</th>
                 <th>Assigned leads</th>
                 <th>Access role</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -51,6 +52,11 @@ export default async function UsersPage() {
                   <td className="text-slate-600">{u._count.ownedLeads}</td>
                   <td>
                     <UserRoleControl userId={u.id} role={u.role} isSelf={u.id === session.id} />
+                  </td>
+                  <td>
+                    {u.id !== session.id && (
+                      <DeleteUserButton userId={u.id} name={u.name} email={u.email} leadCount={u._count.ownedLeads} />
+                    )}
                   </td>
                 </tr>
               ))}

@@ -57,3 +57,22 @@ export async function updateUserRole(userId: string, role: Role): Promise<Action
   revalidatePath("/settings/users");
   return { ok: true };
 }
+
+/**
+ * ADMIN/OWNER-only: remove a team member. Cannot delete your own account. Any
+ * leads/tasks/notifications owned by the deleted user are reassigned to
+ * "unassigned" (ownerId set to null) by the existing FK constraints — nothing
+ * else is deleted.
+ */
+export async function deleteUser(userId: string): Promise<ActionResult> {
+  const session = await getSessionUser();
+  if (!isOwnerOrAdmin(session.role)) return { ok: false, error: "Forbidden" };
+  if (userId === session.id) return { ok: false, error: "You cannot delete your own account." };
+
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!target) return { ok: false, error: "User not found." };
+
+  await prisma.user.delete({ where: { id: userId } });
+  revalidatePath("/settings/users");
+  return { ok: true };
+}

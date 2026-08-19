@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Role } from "@prisma/client";
 import { Button, Card, Input, Select } from "@/components/ui";
-import { createUser, updateUserRole } from "./actions";
+import { createUser, updateUserRole, deleteUser } from "./actions";
 
 const ROLE_LABEL: Record<Role, string> = {
   ADMIN: "Admin — full access, manages users",
@@ -117,6 +117,34 @@ export function UserRoleControl({ userId, role, isSelf }: { userId: string; role
           </option>
         ))}
       </Select>
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+export function DeleteUserButton({ userId, name, email, leadCount }: { userId: string; name: string | null; email: string; leadCount: number }) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState("");
+
+  function onClick() {
+    const who = name || email;
+    const warning =
+      leadCount > 0
+        ? `Delete ${who}? Their ${leadCount} assigned lead${leadCount === 1 ? "" : "s"} will become unassigned. This can't be undone.`
+        : `Delete ${who}? This can't be undone.`;
+    if (!window.confirm(warning)) return;
+    setError("");
+    startTransition(async () => {
+      const result = await deleteUser(userId);
+      if (!result.ok) setError(result.error);
+    });
+  }
+
+  return (
+    <div>
+      <Button type="button" variant="danger" onClick={onClick} disabled={pending}>
+        {pending ? "Removing…" : "Remove"}
+      </Button>
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   );
