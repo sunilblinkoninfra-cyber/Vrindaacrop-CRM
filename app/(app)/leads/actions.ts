@@ -163,3 +163,26 @@ export async function bulkTag(leadIds: string[], tagName: string, kind = "genera
   });
   revalidatePath("/leads");
 }
+
+/**
+ * Permanently delete a lead (Owner/Admin only). Cascades to notes, tasks,
+ * activities, tags, enrollments, and email events via the existing FK
+ * constraints — nothing else needs to be cleaned up manually.
+ */
+export async function deleteLead(leadId: string) {
+  await requireRole("ADMIN", "OWNER");
+  await prisma.lead.delete({ where: { id: leadId } });
+  revalidatePath("/leads");
+  revalidatePath("/pipeline");
+  revalidatePath("/");
+}
+
+/** Bulk-delete many leads at once (Owner/Admin, from the leads list). */
+export async function bulkDelete(leadIds: string[]) {
+  await requireRole("ADMIN", "OWNER");
+  if (!leadIds.length) return;
+  await prisma.lead.deleteMany({ where: { id: { in: leadIds } } });
+  revalidatePath("/leads");
+  revalidatePath("/pipeline");
+  revalidatePath("/");
+}

@@ -6,6 +6,8 @@ import { Badge, Button, Card, PageHeader } from "@/components/ui";
 import { fullName } from "@/lib/utils";
 import { STAGE_LABELS } from "@/lib/constants";
 import { LeadFilters } from "./filters";
+import { DeleteLeadButton } from "./delete-lead-button";
+import { isOwnerOrAdmin } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +72,7 @@ export default async function LeadsPage({
               <th className="px-4 py-2">Stage</th>
               <th className="px-4 py-2">Validation</th>
               <th className="px-4 py-2">Owner</th>
+              {isOwnerOrAdmin(user.role) && <th className="px-4 py-2"></th>}
             </tr>
           </thead>
           <tbody>
@@ -93,11 +96,16 @@ export default async function LeadsPage({
                   <Badge tone={l.validationStatus}>{l.validationStatus}</Badge>
                 </td>
                 <td className="px-4 py-2 text-slate-600">{l.owner?.name ?? "—"}</td>
+                {isOwnerOrAdmin(user.role) && (
+                  <td className="px-4 py-2">
+                    <DeleteLeadButton leadId={l.id} label={fullName(l.firstName, l.lastName) || l.email} />
+                  </td>
+                )}
               </tr>
             ))}
             {leads.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
+                <td colSpan={isOwnerOrAdmin(user.role) ? 10 : 9} className="px-4 py-8 text-center text-slate-400">
                   No leads found. Import a list from the Import & Cleanup page.
                 </td>
               </tr>

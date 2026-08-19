@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, canAccessLead } from "@/lib/rbac";
+import { getSessionUser, canAccessLead, isOwnerOrAdmin } from "@/lib/rbac";
+import { DeleteLeadButton } from "../delete-lead-button";
 import { Badge, Card } from "@/components/ui";
 import { fullName } from "@/lib/utils";
 import { campaignLeadStatus, STATUS_LABEL, STATUS_TONE } from "@/lib/outreach/status";
@@ -54,7 +55,16 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
             {lead.company} · {lead.email} {lead.phone ? `· ${lead.phone}` : ""}
           </p>
         </div>
-        <LeadActions leadId={lead.id} hot={lead.hot} suppressed={lead.isSuppressed} />
+        <div className="flex items-center gap-2">
+          <LeadActions leadId={lead.id} hot={lead.hot} suppressed={lead.isSuppressed} />
+          {isOwnerOrAdmin(user.role) && (
+            <DeleteLeadButton
+              leadId={lead.id}
+              label={fullName(lead.firstName, lead.lastName) || lead.email}
+              redirectTo="/leads"
+            />
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
