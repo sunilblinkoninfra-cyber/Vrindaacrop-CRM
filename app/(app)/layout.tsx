@@ -14,6 +14,7 @@ import {
   IconTemplates,
   IconReports,
   IconSources,
+  IconUsers,
 } from "@/components/icons";
 
 // `ownerOnly` items are hidden from AGENT users (and blocked in middleware).
@@ -26,6 +27,7 @@ const nav = [
   { href: "/templates", label: "Templates", icon: <IconTemplates />, ownerOnly: true },
   { href: "/reports", label: "Reports", icon: <IconReports /> },
   { href: "/settings/sources", label: "Lead Sources", icon: <IconSources />, ownerOnly: true },
+  { href: "/settings/users", label: "Users", icon: <IconUsers />, ownerOnly: true },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
