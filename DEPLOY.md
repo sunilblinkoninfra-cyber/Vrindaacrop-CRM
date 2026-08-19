@@ -82,6 +82,9 @@ the Hot-lead owner alert). `APP_URL` must equal your public domain so tracking l
 
 ## 6. Schema changes later
 
-When you change `prisma/schema.prisma`, run `prisma migrate deploy` against the
-production `DATABASE_URL` (from your machine or CI) — Vercel's build runs
-`prisma generate`, not migrations.
+Vercel's build command runs `prisma generate && prisma migrate deploy && next build`
+(see `package.json`), so pending migrations apply automatically on every deploy —
+no manual step needed. `prisma migrate deploy` only applies migrations already
+committed under `prisma/migrations/`; it never resets data and is safe to run
+repeatedly (a no-op once everything is applied). Just make sure any schema change
+has a generated migration checked into git before you push.
