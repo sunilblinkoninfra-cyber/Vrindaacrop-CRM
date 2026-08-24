@@ -136,7 +136,7 @@ export function TemplateManager({ templates }: { templates: Template[] }) {
           {"{{unsubscribe}}"}
         </p>
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Button onClick={save} disabled={pending || !editing.name || !editing.subjectA}>
             {editing.id ? "Update" : "Create"}
           </Button>
@@ -151,8 +151,8 @@ export function TemplateManager({ templates }: { templates: Template[] }) {
       <div className="space-y-4">
         {aiPreview && (
           <Card className="border-brand/30">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-brand">AI preview (sample lead: Rahul @ Apex Towers)</h2>
+              <div className="mb-2 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="min-w-0 text-xs font-semibold text-brand sm:text-sm">AI preview (sample lead: Rahul @ Apex Towers)</h2>
               {!aiPreview.generated && (
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">
                   fallback (no API key)
@@ -161,7 +161,7 @@ export function TemplateManager({ templates }: { templates: Template[] }) {
             </div>
             <div className="mb-2 text-xs text-slate-500">Subject: {aiPreview.subject}</div>
             <div
-              className="prose prose-sm max-w-none rounded border border-slate-100 p-3 text-sm"
+              className="prose prose-sm max-w-none overflow-x-auto rounded border border-slate-100 p-3 text-sm"
               dangerouslySetInnerHTML={{ __html: sanitize(aiPreview.html) }}
             />
           </Card>
@@ -173,7 +173,7 @@ export function TemplateManager({ templates }: { templates: Template[] }) {
             Subject: {applyTokens(editing.subjectA || "—", SAMPLE_LEAD)}
           </div>
           <div
-            className="prose prose-sm max-w-none rounded border border-slate-100 p-3 text-sm"
+            className="prose prose-sm max-w-none overflow-x-auto rounded border border-slate-100 p-3 text-sm"
             dangerouslySetInnerHTML={{
               __html: sanitize(applyTokens(editing.html || "<em>Nothing to preview yet.</em>", SAMPLE_LEAD)),
             }}
@@ -186,9 +186,9 @@ export function TemplateManager({ templates }: { templates: Template[] }) {
           </div>
           <ul className="divide-y divide-slate-100">
             {templates.map((t) => (
-              <li key={t.id} className="flex items-center justify-between p-3 text-sm">
-                <div>
-                  <div className="flex items-center gap-2 font-medium text-slate-800">
+              <li key={t.id} className="flex flex-col gap-3 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 font-medium text-slate-800">
                     {t.name}
                     {t.aiEnabled && (
                       <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
@@ -196,9 +196,9 @@ export function TemplateManager({ templates }: { templates: Template[] }) {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-400">{t.aiEnabled ? t.aiBrief : t.subjectA}</div>
+                  <div className="truncate text-xs text-slate-400">{t.aiEnabled ? t.aiBrief : t.subjectA}</div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <Button
                     variant="secondary"
                     onClick={() =>

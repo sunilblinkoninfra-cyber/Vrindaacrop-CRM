@@ -25,17 +25,17 @@ export default async function ReportsPage() {
         subtitle="Outreach performance & pipeline health."
         actions={
           <>
-            <a href="/api/reports/export?format=xlsx">
-              <Button variant="secondary">Export Excel</Button>
+            <a href="/api/reports/export?format=xlsx" className="w-full sm:w-auto">
+              <Button className="w-full sm:w-auto" variant="secondary">Export Excel</Button>
             </a>
-            <a href="/reports/print" target="_blank">
-              <Button variant="secondary">Export PDF</Button>
+            <a href="/reports/print" target="_blank" className="w-full sm:w-auto">
+              <Button className="w-full sm:w-auto" variant="secondary">Export PDF</Button>
             </a>
           </>
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-5">
         <StatCard label="Total leads" value={t.leads.toLocaleString()} />
         <StatCard label="Sent" value={funnel.sent} />
         <StatCard label="Open rate" value={`${funnel.openRate}%`} />
@@ -58,7 +58,8 @@ export default async function ReportsPage() {
         </Card>
         <Card>
           <h2 className="mb-3 text-sm font-semibold text-slate-700">Top templates by open rate</h2>
-          <table className="min-w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="min-w-[28rem] text-sm">
             <thead className="text-left text-xs uppercase text-slate-400">
               <tr>
                 <th className="py-1">Template</th>
@@ -84,7 +85,8 @@ export default async function ReportsPage() {
                 </tr>
               )}
             </tbody>
-          </table>
+            </table>
+          </div>
         </Card>
       </div>
     </div>

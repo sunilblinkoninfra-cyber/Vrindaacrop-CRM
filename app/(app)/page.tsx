@@ -39,7 +39,7 @@ export default async function DashboardPage() {
     <div>
       <PageHeader title="Dashboard" subtitle="Overview of leads, outreach & pipeline health." />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         <StatCard label="Total leads" value={t.leads.toLocaleString()} icon={<IconLeads />} accent="text-brand" />
         <StatCard label="Hot leads" value={t.hot} hint="Awaiting owner action" icon={<IconFire />} accent="text-amber-500" />
         <StatCard label="Active campaigns" value={t.activeCampaigns} icon={<IconCampaigns />} accent="text-indigo-500" />
@@ -47,7 +47,7 @@ export default async function DashboardPage() {
         <StatCard label="Invalid/disposable" value={t.invalidEmails} hint="Excluded from sending" icon={<IconContract />} accent="text-red-500" />
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="mt-5 grid grid-cols-1 gap-4 sm:mt-6 sm:gap-6 lg:grid-cols-2">
         <Card>
           <h2 className="mb-4 text-sm font-semibold text-slate-700">Email funnel (all time)</h2>
           <div className="space-y-3">

@@ -10,14 +10,15 @@ export function NewCampaign() {
   const [pending, start] = useTransition();
   const router = useRouter();
   return (
-    <div className="flex gap-2">
+    <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
       <Input
         placeholder="New campaign name…"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="w-64"
+        className="w-full sm:w-64"
       />
       <Button
+        className="w-full sm:w-auto"
         disabled={pending || !name.trim()}
         onClick={() => start(async () => {
           const id = await createCampaign(name);

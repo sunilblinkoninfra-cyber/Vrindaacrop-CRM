@@ -37,9 +37,9 @@ export default async function PipelinePage() {
         subtitle="Move leads through stages with the arrows on each card."
       />
 
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-4 [-webkit-overflow-scrolling:touch] sm:gap-4">
         {STAGES.map((stage) => (
-          <div key={stage} className="w-64 flex-shrink-0 rounded-xl bg-slate-100/60 p-2">
+          <div key={stage} className="w-[min(18rem,calc(100vw-2rem))] shrink-0 snap-start rounded-xl bg-slate-100/60 p-2 sm:w-64">
             <div className="mb-2 flex items-center justify-between px-1 pt-1">
               <span className="text-sm font-semibold text-slate-700">{STAGE_LABELS[stage]}</span>
               <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-500 ring-1 ring-slate-200">

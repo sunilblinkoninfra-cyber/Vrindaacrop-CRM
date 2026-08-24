@@ -16,14 +16,15 @@ export function LeadFilters() {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-6">
       <Input
+        aria-label="Search name, company, or email"
         placeholder="Search name / company / email"
         defaultValue={params.get("q") ?? ""}
         onKeyDown={(e) => {
           if (e.key === "Enter") set("q", (e.target as HTMLInputElement).value);
         }}
-        className="col-span-2"
+        className="sm:col-span-2 md:col-span-2"
       />
       <Select value={params.get("sector") ?? ""} onChange={(e) => set("sector", e.target.value)}>
         <option value="">All sectors</option>

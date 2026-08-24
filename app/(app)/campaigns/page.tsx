@@ -29,16 +29,16 @@ export default async function CampaignsPage() {
       <Card className="p-0">
         <ul className="divide-y divide-slate-100">
           {campaigns.map((c) => (
-            <li key={c.id} className="flex items-center justify-between p-4">
-              <div>
-                <Link href={`/campaigns/${c.id}`} className="font-medium text-brand hover:underline">
+            <li key={c.id} className="flex items-start justify-between gap-3 p-4 sm:items-center">
+              <div className="min-w-0">
+                <Link href={`/campaigns/${c.id}`} className="block truncate font-medium text-brand hover:underline">
                   {c.name}
                 </Link>
                 <div className="text-xs text-slate-400">
                   {c._count.steps} steps · {c._count.enrollments} enrolled
                 </div>
               </div>
-              <Badge className={statusTone[c.status]}>{c.status}</Badge>
+              <Badge className={`shrink-0 ${statusTone[c.status]}`}>{c.status}</Badge>
             </li>
           ))}
           {campaigns.length === 0 && (

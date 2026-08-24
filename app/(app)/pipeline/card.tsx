@@ -26,23 +26,23 @@ export function PipelineCard({
 
   return (
     <div className="rounded-md border border-slate-200 bg-white p-2 text-sm shadow-sm">
-      <Link href={`/leads/${id}`} className="font-medium text-brand hover:underline">
+      <Link href={`/leads/${id}`} className="block truncate font-medium text-brand hover:underline">
         {title}
       </Link>
       {hot && <span className="ml-1 rounded bg-red-100 px-1 text-[10px] text-red-700">Hot</span>}
-      <div className="text-xs text-slate-500">{company}</div>
+      <div className="truncate text-xs text-slate-500">{company}</div>
       <div className="mt-2 flex justify-between">
         <button
           disabled={pending || !prev}
           onClick={() => prev && start(() => updateStage(id, prev).then(() => {}))}
-          className="text-xs text-slate-400 hover:text-brand disabled:opacity-30"
+          className="min-h-9 px-1 text-xs text-slate-400 hover:text-brand disabled:opacity-30"
         >
           ← {prev ?? ""}
         </button>
         <button
           disabled={pending || !next}
           onClick={() => next && start(() => updateStage(id, next).then(() => {}))}
-          className="text-xs text-slate-400 hover:text-brand disabled:opacity-30"
+          className="min-h-9 px-1 text-xs text-slate-400 hover:text-brand disabled:opacity-30"
         >
           {next ?? ""} →
         </button>

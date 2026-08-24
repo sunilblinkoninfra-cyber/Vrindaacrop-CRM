@@ -66,9 +66,9 @@ export default function ImportPage() {
           type="file"
           accept=".csv,.xlsx,.xls"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="block text-sm"
+          className="block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-brand/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-brand sm:text-sm"
         />
-        <Button onClick={onUpload} disabled={!file || busy}>
+        <Button className="w-full sm:w-auto" onClick={onUpload} disabled={!file || busy}>
           {busy && !upload ? "Uploading…" : "Upload & preview"}
         </Button>
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -80,7 +80,7 @@ export default function ImportPage() {
             <strong>{upload.totalRows}</strong> rows found in <em>{upload.columns.length}</em> columns.
             Map your columns to lead fields:
           </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
             {TARGET_FIELDS.map((field) => (
               <div key={field}>
                 <label className="mb-1 block text-xs font-medium text-slate-500">
@@ -102,8 +102,8 @@ export default function ImportPage() {
             ))}
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-xs">
+          <div className="overflow-x-auto rounded-lg border border-slate-100">
+            <table className="min-w-[36rem] text-xs">
               <thead>
                 <tr className="text-left text-slate-400">
                   {upload.columns.map((c) => (
@@ -127,7 +127,7 @@ export default function ImportPage() {
             </table>
           </div>
 
-          <Button onClick={onProcess} disabled={busy || !mapping.email}>
+          <Button className="w-full sm:w-auto" onClick={onProcess} disabled={busy || !mapping.email}>
             {busy ? "Processing…" : "Deduplicate, validate & import"}
           </Button>
           {!mapping.email && <p className="text-xs text-amber-600">Map the email column to continue.</p>}
@@ -137,7 +137,7 @@ export default function ImportPage() {
       {result && (
         <Card>
           <h2 className="mb-3 text-sm font-semibold text-slate-700">Import summary</h2>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
             <Summary label="Total rows" value={result.total} />
             <Summary label="Imported" value={result.imported} tone="text-green-600" />
             <Summary label="Duplicates skipped" value={result.duplicates} tone="text-amber-600" />
