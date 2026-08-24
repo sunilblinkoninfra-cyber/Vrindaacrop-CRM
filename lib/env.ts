@@ -63,8 +63,15 @@ export const env = {
   },
 
   sending: {
+    // Emergency upper bound. The database-backed SendingPlan is the primary
+    // policy; this value can never be exceeded by the scheduler.
     dailyCap: parseInt(process.env.DAILY_SEND_CAP ?? "1000", 10),
     escalationHours: parseInt(process.env.ESCALATION_HOURS ?? "48", 10),
+    schedulerMaxPerRun: parseInt(process.env.SCHEDULER_MAX_PER_RUN ?? "25", 10),
+    schedulerIntervalMinutes: parseInt(process.env.SCHEDULER_INTERVAL_MINUTES ?? "5", 10),
+    timezone: process.env.SEND_TIMEZONE ?? "Asia/Kolkata",
+    sendWindowStart: process.env.SEND_WINDOW_START ?? "09:00",
+    sendWindowEnd: process.env.SEND_WINDOW_END ?? "18:00",
   },
 };
 

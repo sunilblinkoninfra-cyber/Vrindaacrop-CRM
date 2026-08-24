@@ -21,20 +21,20 @@ enum Role {
 }
 
 model User {
-  id             String         @id @default(cuid())
-  email          String         @unique
+  id             String   @id @default(cuid())
+  email          String   @unique
   name           String?
   passwordHash   String
-  role           Role           @default(AGENT)
+  role           Role     @default(AGENT)
   whatsappNumber String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  ownedLeads     Lead[]         @relation("LeadOwner")
-  assignedTasks  Task[]         @relation("TaskAssignee")
-  notifications  Notification[] @relation("NotificationOwner")
-  activities     Activity[]
-  notes          Note[]
+  ownedLeads    Lead[]         @relation("LeadOwner")
+  assignedTasks Task[]         @relation("TaskAssignee")
+  notifications Notification[] @relation("NotificationOwner")
+  activities    Activity[]
+  notes         Note[]
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ enum ValidationStatus {
   INVALID
   RISKY
   DISPOSABLE // known throwaway/temp-mail domain
-  CATCH_ALL  // domain accepts any mailbox; SMTP result for the specific address is untrustworthy
+  CATCH_ALL // domain accepts any mailbox; SMTP result for the specific address is untrustworthy
 }
 
 enum ContractStatus {
@@ -67,49 +67,49 @@ enum ContractStatus {
 }
 
 model Lead {
-  id               String           @id @default(cuid())
-  firstName        String?
-  lastName         String?
-  company          String?
-  email            String
-  emailNormalized  String           // lowercased/trimmed — used for dedup + suppression match
-  phone            String?
-  sector           String?          // canonical: B&I, Manufacturing, Healthcare, Education, ...
-  city             String?          // normalized city name (e.g. Gurgaon, Lucknow)
-  geography        String?          // canonical region derived from city: NCR, UP, Rajasthan, ...
-  source           String?          // channel: website_form | meta_ads | google_ads | import | <filename>
-  sourceDetail     String?          // form id / adset / campaign identifier
-  stage            LeadStage        @default(NEW)
-  validationStatus ValidationStatus @default(UNKNOWN)
-  validationReason String?          // short human-readable reason, e.g. "disposable email domain"
-  validationCheckedAt DateTime?     // last time any validation layer touched this lead
-  smtpCheckedAt    DateTime?        // null = SMTP probe never attempted (distinct from "attempted, inconclusive")
-  isSuppressed     Boolean          @default(false)
-  hot              Boolean          @default(false) // "Hot — Awaiting Owner Action"
-  ownerId          String?
-  owner            User?            @relation("LeadOwner", fields: [ownerId], references: [id])
+  id                  String           @id @default(cuid())
+  firstName           String?
+  lastName            String?
+  company             String?
+  email               String
+  emailNormalized     String // lowercased/trimmed — used for dedup + suppression match
+  phone               String?
+  sector              String? // canonical: B&I, Manufacturing, Healthcare, Education, ...
+  city                String? // normalized city name (e.g. Gurgaon, Lucknow)
+  geography           String? // canonical region derived from city: NCR, UP, Rajasthan, ...
+  source              String? // channel: website_form | meta_ads | google_ads | import | <filename>
+  sourceDetail        String? // form id / adset / campaign identifier
+  stage               LeadStage        @default(NEW)
+  validationStatus    ValidationStatus @default(UNKNOWN)
+  validationReason    String? // short human-readable reason, e.g. "disposable email domain"
+  validationCheckedAt DateTime? // last time any validation layer touched this lead
+  smtpCheckedAt       DateTime? // null = SMTP probe never attempted (distinct from "attempted, inconclusive")
+  isSuppressed        Boolean          @default(false)
+  hot                 Boolean          @default(false) // "Hot — Awaiting Owner Action"
+  ownerId             String?
+  owner               User?            @relation("LeadOwner", fields: [ownerId], references: [id])
 
   // Contract intelligence (best-effort AI enrichment + agent confirmation)
   contractStatus         ContractStatus @default(UNKNOWN)
   incumbentVendor        String?
   contractExpiry         DateTime?
-  contractConfidence     String?        // low | medium | high
-  contractSource         String?        // ai | manual | import
-  contractCheckedAt      DateTime?      // null = enrichment pending
+  contractConfidence     String? // low | medium | high
+  contractSource         String? // ai | manual | import
+  contractCheckedAt      DateTime? // null = enrichment pending
   contractConfirmed      Boolean        @default(false)
   contractReminderSentAt DateTime?
 
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  tags             LeadTag[]
-  enrollments      Enrollment[]
-  emailEvents      EmailEvent[]
-  activities       Activity[]
-  notes            Note[]
-  tasks            Task[]
-  notifications    Notification[]
-  companyAlerts    CompanyAlert[]
+  tags          LeadTag[]
+  enrollments   Enrollment[]
+  emailEvents   EmailEvent[]
+  activities    Activity[]
+  notes         Note[]
+  tasks         Task[]
+  notifications Notification[]
+  companyAlerts CompanyAlert[]
 
   @@index([emailNormalized])
   @@index([stage])
@@ -131,10 +131,10 @@ model DomainReputation {
 }
 
 model Tag {
-  id       String    @id @default(cuid())
-  name     String    @unique
-  kind     String    @default("general") // sector | geography | priority | campaign | general
-  leads    LeadTag[]
+  id    String    @id @default(cuid())
+  name  String    @unique
+  kind  String    @default("general") // sector | geography | priority | campaign | general
+  leads LeadTag[]
 }
 
 model LeadTag {
@@ -159,25 +159,25 @@ enum ImportStatus {
 }
 
 model ImportBatch {
-  id             String        @id @default(cuid())
-  filename       String
-  status         ImportStatus  @default(PENDING)
-  columnMapping  Json?         // { email: "Email Address", company: "Company", ... }
-  totalRows      Int           @default(0)
-  importedRows   Int           @default(0)
-  duplicateRows  Int           @default(0)
-  invalidRows    Int           @default(0)
-  createdAt      DateTime      @default(now())
-  rows           ImportRow[]
+  id            String       @id @default(cuid())
+  filename      String
+  status        ImportStatus @default(PENDING)
+  columnMapping Json? // { email: "Email Address", company: "Company", ... }
+  totalRows     Int          @default(0)
+  importedRows  Int          @default(0)
+  duplicateRows Int          @default(0)
+  invalidRows   Int          @default(0)
+  createdAt     DateTime     @default(now())
+  rows          ImportRow[]
 }
 
 model ImportRow {
-  id        String      @id @default(cuid())
-  batchId   String
-  batch     ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  raw       Json        // original row keyed by source column
-  status    String      @default("pending") // pending | imported | duplicate | invalid
-  note      String?
+  id      String      @id @default(cuid())
+  batchId String
+  batch   ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  raw     Json // original row keyed by source column
+  status  String      @default("pending") // pending | imported | duplicate | invalid
+  note    String?
 
   @@index([batchId])
 }
@@ -193,40 +193,91 @@ enum CampaignStatus {
   COMPLETED
 }
 
-model Campaign {
-  id           String         @id @default(cuid())
-  name         String
-  description  String?
-  status       CampaignStatus @default(DRAFT)
-  segment      Json?          // filter used to enroll leads: { sector, geography, tags }
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+enum SendingPlanStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
 
-  steps        SequenceStep[]
-  enrollments  Enrollment[]
+enum SendAttemptStatus {
+  PENDING
+  SENT
+  FAILED
+  UNKNOWN
+}
+
+model SendingPlan {
+  id                  String            @id @default(cuid())
+  name                String
+  fromEmail           String            @unique
+  fromDomain          String
+  configurationSet    String?
+  timezone            String            @default("Asia/Kolkata")
+  sendWindowStart     String            @default("09:00")
+  sendWindowEnd       String            @default("18:00")
+  hardDailyCap        Int               @default(1000)
+  status              SendingPlanStatus @default(DRAFT)
+  warmupDay           Int               @default(1)
+  warmupStartedAt     DateTime?
+  lastWarmupDate      DateTime?         @db.Date
+  schedule            Json
+  reduceFactor        Float             @default(0.5)
+  bounceReduceRate    Float             @default(0.02)
+  bounceStopRate      Float             @default(0.05)
+  complaintReduceRate Float             @default(0.0005)
+  complaintStopRate   Float             @default(0.001)
+  minSampleSize       Int               @default(100)
+  pauseReason         String?
+  lastHealthCheckAt   DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  campaigns Campaign[]
+  days      SendingDay[]
+
+  @@index([status])
+  @@index([fromDomain, status])
+}
+
+model Campaign {
+  id            String         @id @default(cuid())
+  name          String
+  description   String?
+  status        CampaignStatus @default(DRAFT)
+  segment       Json? // filter used to enroll leads: { sector, geography, tags }
+  sendingPlanId String?
+  sendingPlan   SendingPlan?   @relation(fields: [sendingPlanId], references: [id])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  steps       SequenceStep[]
+  enrollments Enrollment[]
+
+  @@index([sendingPlanId])
 }
 
 model EmailTemplate {
-  id            String         @id @default(cuid())
-  name          String
-  subjectA      String
-  subjectB      String?        // A/B variant (optional)
-  html          String         // supports {{firstName}}, {{company}}, {{sector}}, {{unsubscribe}}
-  aiEnabled     Boolean        @default(false) // generate per-lead copy with AI
-  aiBrief       String?        // brief/offer the AI uses to write each personalized email
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  steps         SequenceStep[]
+  id        String         @id @default(cuid())
+  name      String
+  subjectA  String
+  subjectB  String? // A/B variant (optional)
+  html      String // supports {{firstName}}, {{company}}, {{sector}}, {{unsubscribe}}
+  aiEnabled Boolean        @default(false) // generate per-lead copy with AI
+  aiBrief   String? // brief/offer the AI uses to write each personalized email
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  steps     SequenceStep[]
 }
 
 model SequenceStep {
-  id          String        @id @default(cuid())
-  campaignId  String
-  campaign    Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  templateId  String
-  template    EmailTemplate @relation(fields: [templateId], references: [id])
-  order       Int           // 0 = initial, 1..n = follow-ups
-  delayDays   Int           // days after previous step (e.g. 0, 3, 6)
+  id         String        @id @default(cuid())
+  campaignId String
+  campaign   Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  templateId String
+  template   EmailTemplate @relation(fields: [templateId], references: [id])
+  order      Int // 0 = initial, 1..n = follow-ups
+  delayDays  Int // days after previous step (e.g. 0, 3, 6)
 
   @@unique([campaignId, order])
 }
@@ -238,26 +289,73 @@ enum EnrollmentState {
 }
 
 model Enrollment {
-  id           String          @id @default(cuid())
-  leadId       String
-  lead         Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  campaignId   String
-  campaign     Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  currentStep  Int             @default(0)
-  state        EnrollmentState @default(ACTIVE)
-  pausedReason String?         // replied | unsubscribed | bounced | manual
-  nextSendAt   DateTime?
-  lastEventType EmailEventType? // denormalized furthest status for fast campaign views
-  lastEventAt   DateTime?
-  retryCount    Int             @default(0) // send-error backoff counter
-  lastError     String?         // last send failure message (truncated)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  id               String          @id @default(cuid())
+  leadId           String
+  lead             Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId       String
+  campaign         Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  currentStep      Int             @default(0)
+  state            EnrollmentState @default(ACTIVE)
+  pausedReason     String? // replied | unsubscribed | bounced | manual | send_unknown
+  nextSendAt       DateTime?
+  lastEventType    EmailEventType? // denormalized furthest status for fast campaign views
+  lastEventAt      DateTime?
+  retryCount       Int             @default(0) // send-error backoff counter
+  lastError        String? // last send failure message (truncated)
+  sendClaimToken   String?         @unique
+  sendClaimedUntil DateTime?
+  lastAttemptAt    DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   emailEvents  EmailEvent[]
+  sendAttempts SendAttempt[]
 
   @@unique([leadId, campaignId])
   @@index([state, nextSendAt])
+  @@index([state, nextSendAt, sendClaimedUntil])
+}
+
+model SendingDay {
+  id          String      @id @default(cuid())
+  planId      String
+  plan        SendingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  localDate   DateTime    @db.Date
+  warmupDay   Int
+  allowed     Int
+  reserved    Int         @default(0)
+  sent        Int         @default(0)
+  failed      Int         @default(0)
+  bounced     Int         @default(0)
+  complained  Int         @default(0)
+  paused      Boolean     @default(false)
+  pauseReason String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  attempts SendAttempt[]
+
+  @@unique([planId, localDate])
+  @@index([planId, localDate])
+}
+
+model SendAttempt {
+  id            String            @id @default(cuid())
+  enrollmentId  String
+  enrollment    Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  sendingDayId  String
+  sendingDay    SendingDay        @relation(fields: [sendingDayId], references: [id], onDelete: Cascade)
+  stepOrder     Int
+  attemptNumber Int
+  claimToken    String            @unique
+  status        SendAttemptStatus @default(PENDING)
+  providerId    String?
+  error         String?
+  createdAt     DateTime          @default(now())
+  finalizedAt   DateTime?
+
+  @@unique([enrollmentId, stepOrder, attemptNumber])
+  @@index([status, createdAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -276,17 +374,17 @@ enum EmailEventType {
 }
 
 model EmailEvent {
-  id            String         @id @default(cuid())
-  leadId        String
-  lead          Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  enrollmentId  String?
-  enrollment    Enrollment?    @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
-  stepOrder     Int?
-  type          EmailEventType
-  messageId     String?        // SES message id, used to correlate webhook events
-  subjectVariant String?       // "A" | "B"
-  metadata      Json?
-  createdAt     DateTime       @default(now())
+  id             String         @id @default(cuid())
+  leadId         String
+  lead           Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  enrollmentId   String?
+  enrollment     Enrollment?    @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  stepOrder      Int?
+  type           EmailEventType
+  messageId      String? // SES message id, used to correlate webhook events
+  subjectVariant String? // "A" | "B"
+  metadata       Json?
+  createdAt      DateTime       @default(now())
 
   @@index([leadId])
   @@index([type])
@@ -318,7 +416,7 @@ model Activity {
   lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])
-  type      String   // stage_change | email_sent | email_opened | reply | note | task | import
+  type      String // stage_change | email_sent | email_opened | reply | note | task | import
   message   String
   createdAt DateTime @default(now())
 
@@ -338,15 +436,15 @@ model Note {
 }
 
 model Task {
-  id          String    @id @default(cuid())
-  leadId      String?
-  lead        Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  assigneeId  String?
-  assignee    User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  title       String
-  dueAt       DateTime?
-  completed   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
+  id         String    @id @default(cuid())
+  leadId     String?
+  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assigneeId String?
+  assignee   User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  title      String
+  dueAt      DateTime?
+  completed  Boolean   @default(false)
+  createdAt  DateTime  @default(now())
 
   @@index([assigneeId, completed])
 }
@@ -362,17 +460,17 @@ enum NotificationState {
 }
 
 model Notification {
-  id           String            @id @default(cuid())
-  leadId       String
-  lead         Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  ownerId      String?
-  owner        User?             @relation("NotificationOwner", fields: [ownerId], references: [id])
-  channels     String            // comma list: email,whatsapp
-  state        NotificationState @default(SENT)
-  context      String?           // reply snippet / alert context
+  id             String            @id @default(cuid())
+  leadId         String
+  lead           Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  ownerId        String?
+  owner          User?             @relation("NotificationOwner", fields: [ownerId], references: [id])
+  channels       String // comma list: email,whatsapp
+  state          NotificationState @default(SENT)
+  context        String? // reply snippet / alert context
   acknowledgedAt DateTime?
-  escalatedAt  DateTime?
-  createdAt    DateTime          @default(now())
+  escalatedAt    DateTime?
+  createdAt      DateTime          @default(now())
 
   @@index([state, createdAt])
 }
@@ -382,12 +480,12 @@ model Notification {
 // ---------------------------------------------------------------------------
 
 model JobRun {
-  id        String   @id @default(cuid())
-  job       String   // sender | scheduler | escalation | cron | enrichment
-  startedAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  job        String // sender | scheduler | escalation | cron | enrichment
+  startedAt  DateTime  @default(now())
   finishedAt DateTime?
-  ok        Boolean  @default(false)
-  detail    String?
+  ok         Boolean   @default(false)
+  detail     String?
 }
 
 // ---------------------------------------------------------------------------
@@ -396,8 +494,8 @@ model JobRun {
 
 model InboundLeadLog {
   id        String   @id @default(cuid())
-  channel   String   // website_form | meta_ads | google_ads
-  status    String   // received | created | duplicate | invalid | error
+  channel   String // website_form | meta_ads | google_ads
+  status    String // received | created | duplicate | invalid | error
   payload   Json
   leadId    String?
   note      String?
@@ -411,11 +509,11 @@ model InboundLeadLog {
 // ---------------------------------------------------------------------------
 
 model CompanyAlert {
-  id        String   @id @default(cuid())
-  leadId    String
-  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  kind      String   // unattended_reply | unattended_new | contract_expiry
-  sentAt    DateTime @default(now())
+  id     String   @id @default(cuid())
+  leadId String
+  lead   Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  kind   String // unattended_reply | unattended_new | contract_expiry
+  sentAt DateTime @default(now())
 
   @@unique([leadId, kind])
   @@index([kind])
