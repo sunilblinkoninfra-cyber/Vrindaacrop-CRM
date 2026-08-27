@@ -53,8 +53,8 @@ npm run db:seed
 (For subsequent schema changes during development, use `npx prisma migrate dev`.)
 
 Seed creates two logins (password `admin123`):
-- `admin@vrindaacorpservices.in` (ADMIN)
-- `owner@vrindaacorpservices.in` (OWNER, receives hot-lead alerts)
+- `admin@vrindaacorp.com` (ADMIN)
+- `owner@vrindaacorp.com` (OWNER, receives hot-lead alerts)
 
 **Change these passwords immediately in any real deployment.**
 

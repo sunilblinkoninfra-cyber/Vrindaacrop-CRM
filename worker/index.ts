@@ -1,17 +1,20 @@
 import "dotenv/config";
 import { prisma } from "@/lib/prisma";
-import { env } from "@/lib/env";
+import { env, isImapConfigured } from "@/lib/env";
 import { runSender } from "@/lib/outreach/sender";
 import { runEscalation } from "@/lib/outreach/escalation";
 import { runCompanyAlerts } from "@/lib/outreach/company-alerts";
 import { runContractReminders } from "@/lib/outreach/contract-reminders";
 import { runEnrichment } from "@/lib/ai/contract";
 import { runEmailRevalidation } from "@/lib/outreach/revalidate-leads";
+import { syncImapReplies } from "@/lib/inbound/imap";
 
 const SENDER_INTERVAL_MS = Math.max(1, env.sending.schedulerIntervalMinutes) * 60_000;
+const REPLIES_INTERVAL_MS = 30 * 1000; // Poll inbox every 30 seconds
 const MAINTENANCE_INTERVAL_MS = 15 * 60_000;
 
 let senderRunning = false;
+let repliesRunning = false;
 let maintenanceRunning = false;
 
 async function tickSender() {
@@ -76,11 +79,38 @@ async function tickMaintenance() {
   }
 }
 
+async function tickReplies() {
+  if (repliesRunning || !isImapConfigured()) return;
+  repliesRunning = true;
+  const started = new Date();
+  try {
+    const r = await syncImapReplies({ sinceDays: 7, maxMessages: 50 });
+    if (r.ok && r.matchedReplies > 0) {
+      console.log(`[replies] checked=${r.checked} matchedReplies=${r.matchedReplies}`);
+      await prisma.jobRun.create({
+        data: {
+          job: "replies",
+          startedAt: started,
+          finishedAt: new Date(),
+          ok: true,
+          detail: `checked=${r.checked} matchedReplies=${r.matchedReplies}`,
+        },
+      });
+    }
+  } catch (e) {
+    console.error("[replies] error", e);
+  } finally {
+    repliesRunning = false;
+  }
+}
+
 async function main() {
-  console.log(`VrindaaCorp worker started. sender=${SENDER_INTERVAL_MS / 60_000}m maintenance=${MAINTENANCE_INTERVAL_MS / 60_000}m`);
+  console.log(`VrindaaCorp worker started. sender=${SENDER_INTERVAL_MS / 60_000}m replies=${REPLIES_INTERVAL_MS / 60_000}m maintenance=${MAINTENANCE_INTERVAL_MS / 60_000}m`);
   await tickSender();
+  await tickReplies();
   await tickMaintenance();
   setInterval(() => void tickSender(), SENDER_INTERVAL_MS);
+  setInterval(() => void tickReplies(), REPLIES_INTERVAL_MS);
   setInterval(() => void tickMaintenance(), MAINTENANCE_INTERVAL_MS);
 }
 

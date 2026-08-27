@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "projectName": "Vrindaacorp-CRM",
+  "userName": "developer",
+  "skillLevel": "intermediate",
+  "outputFolder": ".vibecheck/flow",
+  "planningArtifacts": ".vibecheck\\flow\\planning-artifacts",
+  "implementationArtifacts": ".vibecheck\\flow\\implementation-artifacts",
+  "installedAt": "2026-08-25T13:33:18.840Z",
+  "ide": [
+    "claude-code"
+  ]
+}

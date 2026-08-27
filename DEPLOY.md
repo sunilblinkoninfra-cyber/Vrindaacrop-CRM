@@ -19,7 +19,7 @@ DATABASE_URL="postgresql://…pooled…" npx prisma migrate deploy
 DATABASE_URL="postgresql://…pooled…" npm run db:seed
 ```
 
-The seed creates `admin@vrindaacorpservices.in` / `admin123` — change the password after first login.
+The seed creates `admin@vrindaacorp.com` / `admin123` — change the password after first login.
 
 ## 2. Import the repo in Vercel
 

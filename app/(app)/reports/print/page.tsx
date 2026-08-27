@@ -1,5 +1,6 @@
-import { emailFunnel, leadStageCounts, totals } from "@/lib/metrics";
-import { monthlyFunnel, topSectors, topTemplates } from "@/lib/reporting";
+import { getDashboardAnalytics, type DashboardFilter } from "@/lib/metrics";
+import { monthlyFunnel, topTemplates } from "@/lib/reporting";
+import { getSessionUser, leadScopeWhere } from "@/lib/rbac";
 import { STAGE_LABELS } from "@/lib/constants";
 import { format } from "date-fns";
 import { AutoPrint } from "./auto-print";
@@ -7,31 +8,46 @@ import { AutoPrint } from "./auto-print";
 export const dynamic = "force-dynamic";
 
 // Print-optimized report. Use the browser's "Save as PDF" from the print dialog.
-export default async function PrintReportPage() {
-  const [t, funnel, monthly, stages, sectors, templates] = await Promise.all([
-    totals(),
-    emailFunnel(),
+export default async function PrintReportPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | undefined>;
+}) {
+  const user = await getSessionUser();
+  const userScope = leadScopeWhere(user);
+  const filters: DashboardFilter = {
+    timeframe: (searchParams.timeframe as DashboardFilter["timeframe"]) || undefined,
+    sector: searchParams.sector || undefined,
+    geography: searchParams.geography || undefined,
+    ownerId: searchParams.ownerId || undefined,
+    validationStatus: (searchParams.validation as DashboardFilter["validationStatus"]) || undefined,
+    campaignId: searchParams.campaignId || undefined,
+  };
+
+  const [analytics, monthly, templates] = await Promise.all([
+    getDashboardAnalytics(userScope, filters),
     monthlyFunnel(6),
-    leadStageCounts(),
-    topSectors(),
     topTemplates(),
   ]);
+
+  const { kpi, funnel, stages, sectors } = analytics;
 
   return (
     <div className="mx-auto max-w-3xl bg-white p-8 text-slate-800 print:p-0">
       <AutoPrint />
       <h1 className="text-2xl font-bold text-brand">VrindaaCorp Services</h1>
       <p className="text-sm text-slate-500">
-        Outreach & Pipeline Report — {format(new Date(), "dd MMM yyyy")}
+        Outreach &amp; Pipeline Report — {format(new Date(), "dd MMM yyyy")}
+        {filters.timeframe && ` · Filter: ${filters.timeframe.toUpperCase()}`}
       </p>
 
-      <Section title="Summary">
+      <Section title="Executive Summary">
         <Grid
           rows={[
-            ["Total leads", t.leads],
-            ["Hot leads (awaiting owner)", t.hot],
-            ["Suppressed", t.suppressed],
-            ["Active campaigns", t.activeCampaigns],
+            ["Total leads", kpi.leads],
+            ["Won deals", kpi.wonLeads],
+            ["Hot leads (awaiting owner)", kpi.hot],
+            ["Active campaigns", kpi.activeCampaigns],
             ["Emails sent", funnel.sent],
             ["Open rate", `${funnel.openRate}%`],
             ["Reply rate", `${funnel.replyRate}%`],
@@ -48,11 +64,14 @@ export default async function PrintReportPage() {
       </Section>
 
       <Section title="Pipeline by stage">
-        <Table head={["Stage", "Leads"]} rows={stages.map((s) => [STAGE_LABELS[s.stage], s.count])} />
+        <Table
+          head={["Stage", "Leads"]}
+          rows={stages.map((s) => [STAGE_LABELS[s.stage as keyof typeof STAGE_LABELS] || s.stage, s.count])}
+        />
       </Section>
 
       <Section title="Leads by sector">
-        <Table head={["Sector", "Leads"]} rows={sectors.map((s) => [s.sector, s.count])} />
+        <Table head={["Sector", "Leads"]} rows={sectors.map((s) => [s.name, s.value])} />
       </Section>
 
       <Section title="Top templates by open rate">

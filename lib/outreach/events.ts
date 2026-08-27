@@ -12,6 +12,18 @@ export async function recordEvent(args: {
   messageId?: string | null;
   metadata?: Record<string, unknown>;
 }) {
+  // If OPENED event was triggered within last 5 seconds, skip duplicate proxy fetch
+  if (args.type === EmailEventType.OPENED) {
+    const recent = await prisma.emailEvent.findFirst({
+      where: {
+        leadId: args.leadId,
+        type: EmailEventType.OPENED,
+        createdAt: { gte: new Date(Date.now() - 5000) },
+      },
+    });
+    if (recent) return;
+  }
+
   await prisma.emailEvent.create({
     data: {
       leadId: args.leadId,
@@ -21,6 +33,25 @@ export async function recordEvent(args: {
       metadata: (args.metadata as Prisma.InputJsonValue) ?? undefined,
     },
   });
+
+  // If OPENED event, log to lead activity feed
+  if (args.type === EmailEventType.OPENED) {
+    const openCount = await prisma.emailEvent.count({
+      where: { leadId: args.leadId, type: EmailEventType.OPENED },
+    });
+    const message =
+      openCount > 1
+        ? `Lead re-opened email (opened ${openCount} times)`
+        : "Lead opened email";
+
+    await prisma.activity.create({
+      data: {
+        leadId: args.leadId,
+        type: "email",
+        message,
+      },
+    }).catch(() => undefined);
+  }
 
   // Denormalize the furthest status onto the enrollment for fast campaign views.
   if (args.enrollmentId) {

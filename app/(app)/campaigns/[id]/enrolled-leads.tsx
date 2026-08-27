@@ -14,18 +14,27 @@ const PAGE = 100;
 
 /** Server component: the enrolled-leads table with live per-lead status. */
 export async function EnrolledLeads({ campaignId }: { campaignId: string }) {
-  const enrollments = await prisma.enrollment.findMany({
-    where: { campaignId },
-    orderBy: { updatedAt: "desc" },
-    take: PAGE,
-    include: { lead: { include: { owner: true } } },
-  });
+  const [enrollments, all, openCounts] = await Promise.all([
+    prisma.enrollment.findMany({
+      where: { campaignId },
+      orderBy: { updatedAt: "desc" },
+      take: PAGE,
+      include: { lead: { include: { owner: true } } },
+    }),
+    prisma.enrollment.findMany({
+      where: { campaignId },
+      select: { lastEventType: true },
+    }),
+    prisma.emailEvent.groupBy({
+      by: ["enrollmentId"],
+      where: { enrollment: { campaignId }, type: "OPENED" },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const openCountMap = new Map(openCounts.map((o) => [o.enrollmentId, o._count._all]));
 
   // Status distribution across the whole campaign (not just this page).
-  const all = await prisma.enrollment.findMany({
-    where: { campaignId },
-    select: { lastEventType: true },
-  });
   const dist = new Map<CampaignLeadStatus, number>();
   for (const e of all) {
     const s = campaignLeadStatus(e.lastEventType);
@@ -74,6 +83,7 @@ export async function EnrolledLeads({ campaignId }: { campaignId: string }) {
         <tbody>
           {enrollments.map((e) => {
             const status = campaignLeadStatus(e.lastEventType);
+            const opens = openCountMap.get(e.id) ?? 0;
             return (
               <tr key={e.id}>
                 <td>
@@ -86,9 +96,17 @@ export async function EnrolledLeads({ campaignId }: { campaignId: string }) {
                 <td className="text-slate-600">Step {e.currentStep + 1}</td>
                 <td>
                   <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_TONE[status]}`}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_TONE[status]}`}
                   >
-                    {STATUS_LABEL[status]}
+                    <span>{STATUS_LABEL[status]}</span>
+                    {opens > 1 && (
+                      <span
+                        className="rounded bg-amber-200/80 px-1 py-0.5 text-[10px] font-bold text-amber-900 shadow-xs"
+                        title={`Opened ${opens} times`}
+                      >
+                        {opens}x
+                      </span>
+                    )}
                   </span>
                 </td>
                 <td className="text-xs text-slate-500">{enrollmentStateLabel(e.state)}</td>

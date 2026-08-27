@@ -4,6 +4,7 @@ import { fullName } from "@/lib/utils";
 import { getSessionUser, leadScopeWhere } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
 import { PipelineCard } from "./card";
+import { SyncRepliesButton } from "@/components/sync-replies-button";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ export default async function PipelinePage() {
       <PageHeader
         title="Pipeline"
         subtitle="Move leads through stages with the arrows on each card."
+        actions={<SyncRepliesButton />}
       />
 
       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-4 [-webkit-overflow-scrolling:touch] sm:gap-4">

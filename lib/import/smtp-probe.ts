@@ -31,7 +31,7 @@ export async function pickBestMx(domain: string): Promise<string | null> {
  */
 export async function probeMailbox(email: string, mxHost: string): Promise<SmtpProbeResult> {
   const domain = email.split("@")[1] ?? "example.com";
-  const ownDomain = process.env.SMTP_PROBE_HELO_DOMAIN || "vrindaacorpservices.in";
+  const ownDomain = process.env.SMTP_PROBE_HELO_DOMAIN || "vrindaacorp.com";
 
   return new Promise((resolve) => {
     let settled = false;

@@ -7,8 +7,19 @@ async function main() {
   const passwordHash = await bcrypt.hash("admin123", 10);
 
   const admin = await prisma.user.upsert({
+    where: { email: "admin@vrindaacorp.com" },
+    update: { passwordHash },
+    create: {
+      email: "admin@vrindaacorp.com",
+      name: "VrindaaCorp Admin",
+      passwordHash,
+      role: Role.ADMIN,
+    },
+  });
+
+  await prisma.user.upsert({
     where: { email: "admin@vrindaacorpservices.in" },
-    update: {},
+    update: { passwordHash },
     create: {
       email: "admin@vrindaacorpservices.in",
       name: "VrindaaCorp Admin",
@@ -18,8 +29,20 @@ async function main() {
   });
 
   const owner = await prisma.user.upsert({
+    where: { email: "owner@vrindaacorp.com" },
+    update: { passwordHash },
+    create: {
+      email: "owner@vrindaacorp.com",
+      name: "Business Owner",
+      passwordHash,
+      role: Role.OWNER,
+      whatsappNumber: "+919999999999",
+    },
+  });
+
+  await prisma.user.upsert({
     where: { email: "owner@vrindaacorpservices.in" },
-    update: {},
+    update: { passwordHash },
     create: {
       email: "owner@vrindaacorpservices.in",
       name: "Business Owner",

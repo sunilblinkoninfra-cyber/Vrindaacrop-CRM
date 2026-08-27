@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { getActiveOutboundSender } from "@/lib/ses";
 import { CampaignBuilder } from "./builder";
 import { EnrolledLeads } from "./enrolled-leads";
 
@@ -19,26 +20,28 @@ export default async function CampaignDetailPage({ params }: { params: { id: str
 
   if (!campaign) notFound();
 
+  const outboundSender = getActiveOutboundSender();
+
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">{campaign.name}</h1>
-        <p className="text-sm text-slate-500">Configure segment, sequence and launch.</p>
-      </div>
       <CampaignBuilder
         campaignId={campaign.id}
+        campaignName={campaign.name}
         status={campaign.status}
         segment={(campaign.segment ?? {}) as Record<string, string>}
         steps={campaign.steps.map((s) => ({
           id: s.id,
           order: s.order,
           delayDays: s.delayDays,
+          templateId: s.templateId,
           templateName: s.template.name,
         }))}
         templates={templates}
         enrolledCount={campaign._count.enrollments}
+        outboundSender={outboundSender}
       />
       <EnrolledLeads campaignId={campaign.id} />
     </div>
   );
 }
+

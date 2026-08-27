@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "test:smtp": "tsx scripts/test-smtp.ts",
     "worker": "tsx worker/index.ts"
   },
   "prisma": {
@@ -27,9 +28,12 @@
     "date-fns": "^3.6.0",
     "disposable-email-domains": "^1.0.62",
     "dotenv": "^16.4.5",
+    "imapflow": "^1.7.6",
     "isomorphic-dompurify": "^3.22.0",
+    "mailparser": "^3.9.16",
     "next": "^14.2.35",
     "next-auth": "^4.24.8",
+    "nodemailer": "^7.0.13",
     "papaparse": "^5.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -41,7 +45,10 @@
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.20",
     "@types/bcryptjs": "^2.4.6",
+    "@types/imapflow": "^1.0.23",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^20.16.5",
+    "@types/nodemailer": "^8.0.1",
     "@types/papaparse": "^5.3.14",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",

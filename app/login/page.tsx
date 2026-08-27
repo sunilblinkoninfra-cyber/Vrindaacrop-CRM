@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Input } from "@/components/ui";
@@ -30,8 +31,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 px-4">
       <Card className="w-full max-w-sm p-7">
         <div className="mb-6 flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="VrindaaCorp" className="h-11 w-11 object-contain" />
+          <Image src="/logo.png" alt="VrindaaCorp" width={44} height={44} className="h-11 w-11 object-contain" priority />
           <div>
             <h1 className="text-lg font-semibold leading-tight text-slate-900">VrindaaCorp CRM</h1>
             <p className="text-xs text-slate-500">Sign in to manage leads &amp; outreach.</p>

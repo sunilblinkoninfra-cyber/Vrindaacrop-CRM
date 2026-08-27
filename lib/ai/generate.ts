@@ -73,7 +73,7 @@ function fallbackEmail(name: string, company: string, sector: string, brief: str
     <p>I'm reaching out from VrindaaCorp Services. We provide integrated facility management —
     housekeeping, security, technical maintenance, and catering — for ${sector} organizations like ${company}.</p>
     <p>${brief ? escapeHtml(brief) : "We'd love to understand your current facility needs and see if we can help streamline operations and costs."}</p>
-    <p>Would you be open to a brief call this week? <a href="https://vrindaacorpservices.in">Learn more about us</a>.</p>
+    <p>Would you be open to a brief call this week? <a href="https://vrindaacorp.com">Learn more about us</a>.</p>
     <p>Warm regards,<br/>VrindaaCorp Services</p>`;
   return { subject, html: html.trim(), generated: false };
 }

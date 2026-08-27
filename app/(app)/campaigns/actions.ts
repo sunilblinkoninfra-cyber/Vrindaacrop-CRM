@@ -19,6 +19,35 @@ export async function createCampaign(name: string) {
   return c.id;
 }
 
+export async function updateCampaign(
+  campaignId: string,
+  data: { name?: string; description?: string }
+) {
+  await requireUser();
+  const updateData: Record<string, string | null> = {};
+  if (data.name !== undefined) {
+    if (!data.name.trim()) throw new Error("Campaign name cannot be empty.");
+    updateData.name = data.name.trim();
+  }
+  if (data.description !== undefined) {
+    updateData.description = data.description.trim() || null;
+  }
+  const updated = await prisma.campaign.update({
+    where: { id: campaignId },
+    data: updateData,
+  });
+  revalidatePath("/campaigns");
+  revalidatePath(`/campaigns/${campaignId}`);
+  return updated;
+}
+
+export async function deleteCampaign(campaignId: string) {
+  await requireUser();
+  await prisma.campaign.delete({ where: { id: campaignId } });
+  revalidatePath("/campaigns");
+  revalidatePath("/");
+}
+
 export async function updateSegment(campaignId: string, segment: Record<string, string>) {
   await requireUser();
   await prisma.campaign.update({ where: { id: campaignId }, data: { segment } });
@@ -48,6 +77,23 @@ export async function removeStep(stepId: string, campaignId: string) {
   revalidatePath(`/campaigns/${campaignId}`);
 }
 
+export async function updateStep(
+  stepId: string,
+  campaignId: string,
+  templateId: string,
+  delayDays: number
+) {
+  await requireUser();
+  await prisma.sequenceStep.update({
+    where: { id: stepId },
+    data: {
+      templateId,
+      delayDays: Math.max(0, delayDays),
+    },
+  });
+  revalidatePath(`/campaigns/${campaignId}`);
+}
+
 export async function setStatus(campaignId: string, status: CampaignStatus) {
   await requireUser();
   const steps = await prisma.sequenceStep.count({ where: { campaignId } });
@@ -68,4 +114,72 @@ export async function enrollNow(campaignId: string) {
 export async function segmentCount(segment: Record<string, string>) {
   await requireUser();
   return prisma.lead.count({ where: segmentToWhere(segment) });
+}
+
+export async function triggerCampaignOutreach(campaignId: string) {
+  await requireUser();
+  const { runSender } = await import("@/lib/outreach/sender");
+  const { ensureDefaultIndustryTemplates } = await import("@/lib/templates-seed");
+
+  // Ensure default industry templates are populated
+  await ensureDefaultIndustryTemplates();
+
+  // Make active enrollments for this campaign due immediately
+  const now = new Date();
+  await prisma.enrollment.updateMany({
+    where: {
+      campaignId,
+      state: "ACTIVE",
+    },
+    data: {
+      nextSendAt: now,
+    },
+  });
+
+  // Execute the sender pipeline bypassing send window for manual trigger
+  const result = await runSender({
+    limit: 50,
+    ignoreSendWindow: true,
+    campaignId,
+  });
+
+  revalidatePath("/campaigns");
+  revalidatePath(`/campaigns/${campaignId}`);
+  revalidatePath("/");
+  revalidatePath("/leads");
+  return {
+    ok: true,
+    sent: result.sent,
+    attempted: result.attempted,
+    skipped: result.skipped,
+    paused: result.paused,
+    capReached: result.capReached,
+  };
+}
+
+export async function scheduleCampaignOutreach(campaignId: string, scheduledAtISO: string) {
+  await requireUser();
+  const targetDate = new Date(scheduledAtISO);
+  if (isNaN(targetDate.getTime())) {
+    throw new Error("Invalid schedule date provided.");
+  }
+
+  const updated = await prisma.enrollment.updateMany({
+    where: {
+      campaignId,
+      state: "ACTIVE",
+    },
+    data: {
+      nextSendAt: targetDate,
+    },
+  });
+
+  revalidatePath("/campaigns");
+  revalidatePath(`/campaigns/${campaignId}`);
+  revalidatePath("/");
+  return {
+    ok: true,
+    count: updated.count,
+    scheduledAt: targetDate.toISOString(),
+  };
 }

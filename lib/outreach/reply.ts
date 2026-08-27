@@ -26,6 +26,18 @@ export async function handleReply(args: {
 
   const { leadId, enrollmentId } = match;
 
+  // Deduplication check: if messageId exists, check if already recorded
+  if (args.messageId) {
+    const existing = await prisma.emailEvent.findFirst({
+      where: {
+        leadId,
+        type: EmailEventType.REPLIED,
+        messageId: args.messageId,
+      },
+    });
+    if (existing) return { matched: true, leadId, alreadyProcessed: true };
+  }
+
   const leadForNotify = await prisma.$transaction(async (tx) => {
     const lead = await tx.lead.findUnique({ where: { id: leadId }, include: { owner: true } });
     if (!lead) return null;
@@ -35,6 +47,7 @@ export async function handleReply(args: {
         leadId,
         enrollmentId: enrollmentId ?? null,
         type: EmailEventType.REPLIED,
+        messageId: args.messageId ?? null,
         metadata: args.snippet ? ({ snippet: args.snippet } as Prisma.InputJsonValue) : undefined,
       },
     });

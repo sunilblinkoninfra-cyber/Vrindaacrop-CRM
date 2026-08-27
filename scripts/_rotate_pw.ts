@@ -18,7 +18,12 @@ async function main() {
   if (!dbUrl) throw new Error("DATABASE_URL must be set");
 
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
-  const targets = ["admin@vrindaacorpservices.in", "owner@vrindaacorpservices.in"];
+  const targets = [
+    "admin@vrindaacorp.com",
+    "owner@vrindaacorp.com",
+    "admin@vrindaacorpservices.in",
+    "owner@vrindaacorpservices.in",
+  ];
 
   console.log(`Target DB: ${dbUrl.split("@")[1]?.split("/")[0] ?? "(unknown)"}`);
 

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { EmailEventType, Prisma, SendAttemptStatus, SendingPlanStatus } from "@prisma/client";
-import { env } from "@/lib/env";
+import { env, isSmtpConfigured } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { isFurther } from "@/lib/outreach/status";
 
@@ -116,8 +116,12 @@ export function withinSendWindow(date: Date, plan: { timezone: string; sendWindo
 }
 
 export async function ensureDefaultSendingPlan() {
-  const fromEmail = env.aws.fromEmail.trim().toLowerCase();
-  const fromDomain = fromEmail.split("@")[1] || "example.com";
+  const fromEmail = (
+    isSmtpConfigured()
+      ? env.smtp.fromEmail || env.smtp.user
+      : env.aws.fromEmail
+  ).trim().toLowerCase() || "sales@vrindaacorp.com";
+  const fromDomain = fromEmail.split("@")[1] || "vrindaacorp.com";
   const now = new Date();
   const today = localDate(now, env.sending.timezone);
 
@@ -276,20 +280,36 @@ export async function reapStaleClaims(now = new Date()): Promise<number> {
 }
 
 /** Atomically claim one due enrollment and reserve one unit of the daily budget. */
-export async function claimNextEnrollment(planId: string, sendingDayId: string, now = new Date()): Promise<SendingClaim | null> {
+export async function claimNextEnrollment(
+  planId: string,
+  sendingDayId: string,
+  now = new Date(),
+  campaignId?: string
+): Promise<SendingClaim | null> {
   return prisma.$transaction(async (tx) => {
+    // Ensure active campaigns are mapped to plan
+    await tx.campaign.updateMany({
+      where: { OR: [{ sendingPlanId: null }, { sendingPlanId: { not: planId } }] },
+      data: { sendingPlanId: planId },
+    });
+
+    const campaignFilter = campaignId
+      ? Prisma.sql`AND c."id" = ${campaignId}`
+      : Prisma.sql``;
+
     const due = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT e."id"
       FROM "Enrollment" e
       JOIN "Campaign" c ON c."id" = e."campaignId"
       JOIN "Lead" l ON l."id" = e."leadId"
-      WHERE c."sendingPlanId" = ${planId}
+      WHERE (c."sendingPlanId" = ${planId} OR c."sendingPlanId" IS NULL)
         AND c."status" = 'ACTIVE'
         AND e."state" = 'ACTIVE'
         AND e."nextSendAt" <= ${now}
         AND (e."sendClaimedUntil" IS NULL OR e."sendClaimedUntil" < ${now})
         AND l."isSuppressed" = false
         AND l."validationStatus" NOT IN ('INVALID', 'DISPOSABLE')
+        ${campaignFilter}
       ORDER BY
         CASE WHEN l."validationStatus" = 'VALID' THEN 0 ELSE 1 END,
         CASE WHEN l."source" IN ('website_form', 'meta_ads', 'google_ads') THEN 0 ELSE 1 END,

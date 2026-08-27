@@ -4,6 +4,97 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { assertCanActOnLead, getSessionUser, requireRole } from "@/lib/rbac";
 import { LeadStage, ContractStatus } from "@prisma/client";
+import { validateEmail, localCheckToValidationStatus } from "@/lib/import/validate";
+import { normalizeSector, normalizeCity, toRegion } from "@/lib/import/normalize";
+
+export type CreateLeadInput = {
+  firstName?: string;
+  lastName?: string;
+  company?: string;
+  email: string;
+  phone?: string;
+  sector?: string;
+  city?: string;
+  geography?: string;
+  stage?: LeadStage;
+  ownerId?: string | null;
+  tags?: string[];
+};
+
+export async function createLead(input: CreateLeadInput) {
+  const user = await getSessionUser();
+  if (!input.email || !input.email.trim()) {
+    throw new Error("Email address is required.");
+  }
+  const emailNormalized = input.email.trim().toLowerCase();
+
+  // Local email validation (syntax, MX, disposable check)
+  const val = await validateEmail(emailNormalized);
+  const validationStatus = localCheckToValidationStatus[val.check];
+  const validationReason = val.reason;
+
+  // Sector and location canonicalization
+  const sector = normalizeSector(input.sector);
+  const city = normalizeCity(input.city);
+  const geography = input.geography?.trim() || toRegion(input.city) || null;
+
+  // Role-based owner assignment
+  let ownerId = input.ownerId || null;
+  if (user.role === "AGENT") {
+    ownerId = user.id;
+  }
+
+  const lead = await prisma.lead.create({
+    data: {
+      firstName: input.firstName?.trim() || null,
+      lastName: input.lastName?.trim() || null,
+      company: input.company?.trim() || null,
+      email: input.email.trim(),
+      emailNormalized,
+      phone: input.phone?.trim() || null,
+      sector,
+      city,
+      geography,
+      stage: input.stage ?? "NEW",
+      ownerId,
+      source: "manual",
+      validationStatus,
+      validationReason,
+      validationCheckedAt: new Date(),
+    },
+  });
+
+  if (input.tags && input.tags.length > 0) {
+    for (const tagName of input.tags) {
+      const name = tagName.trim();
+      if (!name) continue;
+      const tag = await prisma.tag.upsert({
+        where: { name },
+        update: {},
+        create: { name, kind: "general" },
+      });
+      await prisma.leadTag.upsert({
+        where: { leadId_tagId: { leadId: lead.id, tagId: tag.id } },
+        update: {},
+        create: { leadId: lead.id, tagId: tag.id },
+      });
+    }
+  }
+
+  await prisma.activity.create({
+    data: {
+      leadId: lead.id,
+      userId: user.id,
+      type: "note",
+      message: "Lead created manually",
+    },
+  });
+
+  revalidatePath("/leads");
+  revalidatePath("/pipeline");
+  revalidatePath("/");
+  return lead;
+}
 
 export async function updateStage(leadId: string, stage: LeadStage) {
   const userId = await assertCanActOnLead(leadId);
@@ -186,3 +277,15 @@ export async function bulkDelete(leadIds: string[]) {
   revalidatePath("/pipeline");
   revalidatePath("/");
 }
+
+/** Check and sync inbox replies from leads via IMAP. */
+export async function syncRepliesAction() {
+  const { syncImapReplies } = await import("@/lib/inbound/imap");
+  const res = await syncImapReplies({ sinceDays: 7, maxMessages: 50 });
+  revalidatePath("/leads");
+  revalidatePath("/pipeline");
+  revalidatePath("/");
+  revalidatePath("/campaigns");
+  return res;
+}
+

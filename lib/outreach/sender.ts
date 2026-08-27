@@ -3,6 +3,7 @@ import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/ses";
 import { applyTokens, pickSubject, injectTracking } from "@/lib/email/render";
 import { generateEmail } from "@/lib/ai/generate";
+import { resolveTemplateForLead } from "@/lib/templates-seed";
 import { prisma } from "@/lib/prisma";
 import {
   claimNextEnrollment,
@@ -40,12 +41,21 @@ function jitterMs() {
   return JITTER_MIN_MS + Math.floor(Math.random() * (JITTER_MAX_MS - JITTER_MIN_MS + 1));
 }
 
+export type RunSenderOptions = {
+  limit?: number;
+  ignoreSendWindow?: boolean;
+  campaignId?: string;
+};
+
 /**
  * Claim and send a bounded batch of due emails. The daily budget is stored in
  * SendingDay, and every enrollment is claimed with a database transaction so
  * concurrent cron/worker invocations cannot send the same enrollment twice.
  */
-export async function runSender(limit?: number): Promise<SendBatchResult> {
+export async function runSender(options?: number | RunSenderOptions): Promise<SendBatchResult> {
+  const opts: RunSenderOptions =
+    typeof options === "number" ? { limit: options } : options ?? {};
+
   const now = new Date();
   const plan = await ensureDefaultSendingPlan();
   const prepared = await ensureSendingDay(plan, now);
@@ -67,15 +77,20 @@ export async function runSender(limit?: number): Promise<SendBatchResult> {
   });
 
   if (paused) return empty(false);
-  if (!withinSendWindow(now, prepared.plan)) return empty(false);
+  if (!opts.ignoreSendWindow && !withinSendWindow(now, prepared.plan)) return empty(false);
 
-  const maxPerRun = Math.max(1, Math.min(limit ?? env.sending.schedulerMaxPerRun, 100));
+  const maxPerRun = Math.max(1, Math.min(opts.limit ?? env.sending.schedulerMaxPerRun, 100));
   let attempted = 0;
   let sent = 0;
   let skipped = 0;
 
   while (attempted < maxPerRun) {
-    const claim = await claimNextEnrollment(prepared.plan.id, day.id, new Date());
+    const claim = await claimNextEnrollment(
+      prepared.plan.id,
+      day.id,
+      new Date(),
+      opts.campaignId
+    );
     if (!claim) break;
     attempted++;
 
@@ -125,7 +140,7 @@ export async function runSender(limit?: number): Promise<SendBatchResult> {
     let providerAccepted = false;
 
     try {
-      const tpl = step.template;
+      const tpl = await resolveTemplateForLead(step.template, lead);
       const seed = `${lead.id}:${step.id}`;
       let rawHtml: string;
 

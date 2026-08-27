@@ -14,3 +14,6 @@ tsconfig.tsbuildinfo
 
 .vercel
 .env*
+
+# Exclude presentation demo guide from git
+docs/DEMO_PRESENTATION_GUIDE.md

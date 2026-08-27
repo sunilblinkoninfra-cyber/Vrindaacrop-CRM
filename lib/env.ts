@@ -13,6 +13,24 @@ export const env = {
     webhookSecret: process.env.SES_WEBHOOK_SECRET ?? "",
   },
 
+  smtp: {
+    host: process.env.SMTP_HOST ?? "smtp.office365.com",
+    port: parseInt(process.env.SMTP_PORT ?? "587", 10),
+    secure: process.env.SMTP_SECURE === "true",
+    user: process.env.SMTP_USER ?? "",
+    pass: process.env.SMTP_PASS ?? "",
+    fromEmail: process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER ?? process.env.SES_FROM_EMAIL ?? "",
+    fromName: process.env.SMTP_FROM_NAME ?? process.env.SES_FROM_NAME ?? "VrindaaCorp Services",
+  },
+
+  imap: {
+    host: process.env.IMAP_HOST ?? (process.env.SMTP_HOST?.includes("gmail.com") ? "imap.gmail.com" : process.env.SMTP_HOST?.replace(/^smtp\./, "imap.") ?? "imap.gmail.com"),
+    port: parseInt(process.env.IMAP_PORT ?? "993", 10),
+    secure: process.env.IMAP_SECURE !== "false",
+    user: process.env.IMAP_USER ?? process.env.SMTP_USER ?? "",
+    pass: process.env.IMAP_PASS ?? process.env.SMTP_PASS ?? "",
+  },
+
   verifier: {
     provider: (process.env.EMAIL_VERIFIER ?? "none") as "none" | "neverbounce" | "zerobounce",
     apiKey: process.env.EMAIL_VERIFIER_API_KEY ?? "",
@@ -77,4 +95,12 @@ export const env = {
 
 export function isSesConfigured(): boolean {
   return Boolean(env.aws.accessKeyId && env.aws.secretAccessKey);
+}
+
+export function isSmtpConfigured(): boolean {
+  return Boolean(env.smtp.user && env.smtp.pass);
+}
+
+export function isImapConfigured(): boolean {
+  return Boolean(env.imap.user && env.imap.pass);
 }
