@@ -33,6 +33,9 @@ export default withAuth(
     return NextResponse.next();
   },
   {
+    pages: {
+      signIn: "/login",
+    },
     callbacks: {
       // The login endpoint itself is public; everything else requires a session.
       authorized: ({ token, req }) =>
