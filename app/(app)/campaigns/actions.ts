@@ -116,7 +116,7 @@ export async function segmentCount(segment: Record<string, string>) {
   return prisma.lead.count({ where: segmentToWhere(segment) });
 }
 
-export async function triggerCampaignOutreach(campaignId: string) {
+export async function triggerCampaignOutreach(campaignId: string, customLimit?: number) {
   await requireUser();
   const { runSender } = await import("@/lib/outreach/sender");
   const { ensureDefaultIndustryTemplates } = await import("@/lib/templates-seed");
@@ -136,9 +136,11 @@ export async function triggerCampaignOutreach(campaignId: string) {
     },
   });
 
+  const sendLimit = customLimit && customLimit > 0 ? Math.min(customLimit, 1000) : 50;
+
   // Execute the sender pipeline bypassing send window for manual trigger
   const result = await runSender({
-    limit: 50,
+    limit: sendLimit,
     ignoreSendWindow: true,
     campaignId,
   });
@@ -154,6 +156,7 @@ export async function triggerCampaignOutreach(campaignId: string) {
     skipped: result.skipped,
     paused: result.paused,
     capReached: result.capReached,
+    limit: sendLimit,
   };
 }
 

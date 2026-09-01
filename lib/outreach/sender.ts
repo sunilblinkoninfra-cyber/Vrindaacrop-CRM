@@ -79,7 +79,7 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
   if (paused) return empty(false);
   if (!opts.ignoreSendWindow && !withinSendWindow(now, prepared.plan)) return empty(false);
 
-  const maxPerRun = Math.max(1, Math.min(opts.limit ?? env.sending.schedulerMaxPerRun, 100));
+  const maxPerRun = Math.max(1, Math.min(opts.limit ?? env.sending.schedulerMaxPerRun, 1000));
   let attempted = 0;
   let sent = 0;
   let skipped = 0;

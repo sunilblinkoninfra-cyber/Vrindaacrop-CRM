@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge, Button } from "@/components/ui";
-import { deleteCampaign, triggerCampaignOutreach } from "./actions";
+import { deleteCampaign } from "./actions";
+import { TriggerOutreachModal } from "@/components/trigger-outreach-modal";
 
 type CampaignItem = {
   id: string;
@@ -27,6 +28,7 @@ const statusTone: Record<string, string> = {
 export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
   const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [triggeringCampaign, setTriggeringCampaign] = useState<CampaignItem | null>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -55,27 +57,6 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
     });
   }
 
-  function handleTrigger(id: string) {
-    setError("");
-    setSuccess("");
-    setPendingId(id);
-    startTransition(async () => {
-      try {
-        const res = await triggerCampaignOutreach(id);
-        if (res.sent > 0) {
-          setSuccess(`⚡ Outreach triggered: ${res.sent} email(s) sent with industry-matched templates!`);
-        } else {
-          setSuccess(`Outreach triggered: ${res.attempted} processed (${res.sent} sent, ${res.skipped} skipped).`);
-        }
-        router.refresh();
-      } catch (err: any) {
-        setError(err.message || "Failed to trigger outreach.");
-      } finally {
-        setPendingId(null);
-      }
-    });
-  }
-
   return (
     <div className="space-y-3">
       {error && (
@@ -92,7 +73,6 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
       <ul className="divide-y divide-slate-100">
         {campaigns.map((c) => {
           const isDeleting = isPending && pendingId === c.id;
-          const isTriggering = isPending && pendingId === c.id;
 
           return (
             <li
@@ -122,7 +102,7 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
                     type="button"
                     variant="primary"
                     disabled={isPending}
-                    onClick={() => handleTrigger(c.id)}
+                    onClick={() => setTriggeringCampaign(c)}
                     className="h-8 min-h-0 px-2.5 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
                   >
                     <svg
@@ -137,7 +117,7 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
                         clipRule="evenodd"
                       />
                     </svg>
-                    <span>{isTriggering ? "Sending…" : "Trigger Now"}</span>
+                    <span>Trigger Now</span>
                   </Button>
                 )}
 
@@ -187,7 +167,19 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
           </li>
         )}
       </ul>
+
+      {/* Trigger Outreach Batch Size Modal */}
+      {triggeringCampaign && (
+        <TriggerOutreachModal
+          isOpen={Boolean(triggeringCampaign)}
+          onClose={() => setTriggeringCampaign(null)}
+          campaignId={triggeringCampaign.id}
+          campaignName={triggeringCampaign.name}
+          enrolledCount={triggeringCampaign._count.enrollments}
+          onSuccess={(msg) => setSuccess(msg)}
+          onError={(msg) => setError(msg)}
+        />
+      )}
     </div>
   );
 }
-

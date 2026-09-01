@@ -17,6 +17,7 @@ import {
   triggerCampaignOutreach,
   scheduleCampaignOutreach,
 } from "../actions";
+import { TriggerOutreachModal } from "@/components/trigger-outreach-modal";
 import type { CampaignStatus } from "@prisma/client";
 
 type Step = {
@@ -73,6 +74,9 @@ export function CampaignBuilder({
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [editStepTemplateId, setEditStepTemplateId] = useState("");
   const [editStepDelay, setEditStepDelay] = useState("0");
+
+  // Trigger Outreach Modal State
+  const [isTriggerModalOpen, setIsTriggerModalOpen] = useState(false);
 
   // Schedule Modal State
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -154,16 +158,7 @@ export function CampaignBuilder({
       setError("Please activate the campaign before triggering outreach.");
       return;
     }
-    run(async () => {
-      const res = await triggerCampaignOutreach(campaignId);
-      if (res.sent > 0) {
-        setSuccess(`⚡ Outreach triggered: ${res.sent} email(s) sent successfully!`);
-      } else if (res.capReached) {
-        setSuccess(`Sending cap reached for today. Remaining emails are queued.`);
-      } else {
-        setSuccess(`Outreach triggered: ${res.attempted} processed (${res.sent} sent, ${res.skipped} skipped).`);
-      }
-    });
+    setIsTriggerModalOpen(true);
   }
 
   function handleSaveSchedule(e: React.FormEvent) {
@@ -654,6 +649,18 @@ export function CampaignBuilder({
           </div>
         </div>
       )}
+
+      {/* Trigger Outreach Batch Size Modal Dialog */}
+      <TriggerOutreachModal
+        isOpen={isTriggerModalOpen}
+        onClose={() => setIsTriggerModalOpen(false)}
+        campaignId={campaignId}
+        campaignName={campaignName}
+        enrolledCount={enrolledCount}
+        outboundSender={outboundSender}
+        onSuccess={(msg) => setSuccess(msg)}
+        onError={(msg) => setError(msg)}
+      />
     </div>
   );
 }
