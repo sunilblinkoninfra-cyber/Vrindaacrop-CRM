@@ -46,18 +46,45 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-900">
-            {fullName(lead.firstName, lead.lastName) || lead.email}
+          <h1 className="flex flex-wrap items-center gap-2 text-xl sm:text-2xl font-semibold text-slate-900">
+            <span>{fullName(lead.firstName, lead.lastName) || lead.email}</span>
             {lead.hot && <Badge className="bg-red-100 text-red-700">Hot — Awaiting Owner</Badge>}
             {lead.isSuppressed && <Badge className="bg-slate-200 text-slate-600">Suppressed</Badge>}
           </h1>
-          <p className="text-sm text-slate-500">
-            {lead.company} · {lead.email} {lead.phone ? `· ${lead.phone}` : ""}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+            {lead.company && <span>{lead.company}</span>}
+            {lead.company && <span>·</span>}
+            <a href={`mailto:${lead.email}`} className="text-brand hover:underline font-medium">
+              {lead.email}
+            </a>
+            {lead.phone && (
+              <>
+                <span>·</span>
+                <a
+                  href={`tel:${lead.phone}`}
+                  className="inline-flex items-center gap-1 font-medium text-emerald-600 hover:underline"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M2 3.5A1.5 1.5 0 013.5 2h1.148a1.5 1.5 0 011.465 1.175l.716 3.223a1.5 1.5 0 01-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 006.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 011.767-1.052l3.223.716A1.5 1.5 0 0118 15.352V16.5a1.5 1.5 0 01-1.5 1.5H15c-1.149 0-2.263-.15-3.326-.43A13.022 13.022 0 012.43 8.326 13.019 13.019 0 012 5V3.5z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  {lead.phone}
+                </a>
+              </>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <LeadActions leadId={lead.id} hot={lead.hot} suppressed={lead.isSuppressed} />
           {isOwnerOrAdmin(user.role) && (
             <DeleteLeadButton

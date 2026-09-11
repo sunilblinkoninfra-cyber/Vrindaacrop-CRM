@@ -65,7 +65,7 @@ Brief / offer to convey: ${brief}`;
     return fallbackEmail(name, company, sector, brief);
   }
 
-  const subject = parsed.subject?.trim() || `Facility management support for ${company}`;
+  const subject = parsed?.subject?.trim() || `Facility management support for ${company}`;
   return { subject, html: bodyHtml, generated: true };
 }
 

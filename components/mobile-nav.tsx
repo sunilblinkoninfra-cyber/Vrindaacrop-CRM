@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { SignOutButton } from "@/components/sign-out-button";
 import { NavLink } from "@/components/nav-link";
 import {
@@ -32,6 +32,14 @@ const nav = [
 export function MobileNav({ role, name, email, initials }: { role?: string; name: string; email: string; initials: string }) {
   const [open, setOpen] = useState(false);
   const visibleNav = nav.filter((item) => !item.ownerOnly || role !== "AGENT");
+
+  useEffect(() => {
+    function handleOpen() {
+      setOpen(true);
+    }
+    window.addEventListener("open-mobile-nav", handleOpen);
+    return () => window.removeEventListener("open-mobile-nav", handleOpen);
+  }, []);
 
   return (
     <>

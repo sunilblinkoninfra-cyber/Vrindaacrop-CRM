@@ -1,9 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { STAGES, STAGE_LABELS } from "@/lib/constants";
-import { fullName } from "@/lib/utils";
+import { STAGES } from "@/lib/constants";
 import { getSessionUser, leadScopeWhere } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
-import { PipelineCard } from "./card";
+import { PipelineView } from "./pipeline-view";
 import { SyncRepliesButton } from "@/components/sync-replies-button";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +27,23 @@ export default async function PipelinePage() {
     ),
   ]);
 
-  const countMap = new Map(counts.map((c) => [c.stage, c._count._all]));
-  const byStage = new Map(STAGES.map((s, i) => [s, stageLeads[i]]));
+  const countMapObj: Record<string, number> = {};
+  for (const c of counts) {
+    countMapObj[c.stage] = c._count._all;
+  }
+
+  const byStageObj: Record<string, any[]> = {};
+  STAGES.forEach((s, i) => {
+    byStageObj[s] = stageLeads[i].map((l) => ({
+      id: l.id,
+      firstName: l.firstName,
+      lastName: l.lastName,
+      company: l.company,
+      email: l.email,
+      stage: l.stage,
+      hot: l.hot,
+    }));
+  });
 
   return (
     <div className="space-y-4">
@@ -39,30 +53,7 @@ export default async function PipelinePage() {
         actions={<SyncRepliesButton />}
       />
 
-      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-4 [-webkit-overflow-scrolling:touch] sm:gap-4">
-        {STAGES.map((stage) => (
-          <div key={stage} className="w-[min(18rem,calc(100vw-2rem))] shrink-0 snap-start rounded-xl bg-slate-100/60 p-2 sm:w-64">
-            <div className="mb-2 flex items-center justify-between px-1 pt-1">
-              <span className="text-sm font-semibold text-slate-700">{STAGE_LABELS[stage]}</span>
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
-                {countMap.get(stage) ?? 0}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {byStage.get(stage)!.map((l) => (
-                <PipelineCard
-                  key={l.id}
-                  id={l.id}
-                  title={fullName(l.firstName, l.lastName) || l.email}
-                  company={l.company ?? ""}
-                  stage={l.stage}
-                  hot={l.hot}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+      <PipelineView countMap={countMapObj} byStage={byStageObj} />
     </div>
   );
 }

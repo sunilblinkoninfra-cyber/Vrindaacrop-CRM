@@ -132,7 +132,7 @@ export function LeadsTable({
 
       {/* Floating / Top Bulk Action Toolbar */}
       {canManage && selectedIds.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand/20 bg-brand/5 p-3 text-sm text-slate-800 animate-in fade-in">
+        <div className="sticky top-2 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/30 bg-white/95 p-3 text-sm text-slate-800 shadow-md backdrop-blur sm:static sm:bg-brand/5 sm:border-brand/20 sm:shadow-none animate-in fade-in">
           <div className="flex items-center gap-2 font-medium">
             <span className="inline-flex h-6 items-center justify-center rounded-full bg-brand px-2.5 text-xs font-semibold text-white">
               {selectedIds.length}
@@ -402,19 +402,70 @@ export function LeadsTable({
                 </div>
               </div>
 
-              {canManage && (
-                <div className="flex justify-end border-t border-slate-50 pt-2">
-                  <Button
-                    type="button"
-                    variant="danger"
-                    disabled={pending}
-                    onClick={() => handleDeleteSingle(l.id, name)}
-                    className="h-8 min-h-0 px-3 py-1 text-xs"
-                  >
-                    Delete Lead
-                  </Button>
+              {/* Mobile Quick Action Buttons: Email, Call, Details */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+                <div className="flex items-center gap-1.5">
+                  {l.email && (
+                    <a
+                      href={`mailto:${l.email}`}
+                      className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 transition-colors"
+                      title="Send email"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        className="h-3.5 w-3.5 text-slate-500"
+                      >
+                        <path d="M3 4a2 2 0 00-2 2v1.161l8.441 4.221a1.25 1.25 0 001.118 0L19 7.162V6a2 2 0 00-2-2H3z" />
+                        <path d="M19 8.839l-7.77 3.885a2.75 2.75 0 01-2.46 0L1 8.839V14a2 2 0 002 2h14a2 2 0 002-2V8.839z" />
+                      </svg>
+                      <span>Email</span>
+                    </a>
+                  )}
+                  {l.phone && (
+                    <a
+                      href={`tel:${l.phone}`}
+                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
+                      title="Direct phone call"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        className="h-3.5 w-3.5 text-emerald-600"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M2 3.5A1.5 1.5 0 013.5 2h1.148a1.5 1.5 0 011.465 1.175l.716 3.223a1.5 1.5 0 01-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 006.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 011.767-1.052l3.223.716A1.5 1.5 0 0118 15.352V16.5a1.5 1.5 0 01-1.5 1.5H15c-1.149 0-2.263-.15-3.326-.43A13.022 13.022 0 012.43 8.326 13.019 13.019 0 012 5V3.5z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      <span>Call</span>
+                    </a>
+                  )}
                 </div>
-              )}
+
+                <div className="flex items-center gap-2">
+                  {canManage && (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => handleDeleteSingle(l.id, name)}
+                      className="inline-flex items-center rounded-lg px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
+                      title="Delete lead"
+                    >
+                      Delete
+                    </button>
+                  )}
+                  <Link
+                    href={`/leads/${l.id}`}
+                    className="inline-flex items-center gap-1 rounded-lg bg-brand/10 px-2.5 py-1.5 text-xs font-semibold text-brand hover:bg-brand/20 transition-colors"
+                  >
+                    <span>View &rarr;</span>
+                  </Link>
+                </div>
+              </div>
             </article>
           );
         })}

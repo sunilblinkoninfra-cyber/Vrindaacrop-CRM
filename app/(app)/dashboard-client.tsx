@@ -111,6 +111,7 @@ export function DashboardClient({
   const [isPending, startTransition] = useTransition();
 
   const [activeTab, setActiveTab] = useState<"overview" | "outreach" | "quality">("overview");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Read active filters from URL query params
   const timeframe = searchParams.get("timeframe") || "all";
@@ -127,6 +128,15 @@ export function DashboardClient({
     ownerId !== "ALL" ||
     validationStatus !== "ALL" ||
     campaignId !== "ALL";
+
+  const activeFilterCount = [
+    timeframe !== "all",
+    sector !== "ALL",
+    geography !== "ALL",
+    ownerId !== "ALL",
+    validationStatus !== "ALL",
+    campaignId !== "ALL",
+  ].filter(Boolean).length;
 
   function applyFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -167,13 +177,13 @@ export function DashboardClient({
         </div>
 
         {/* Timeframe Quick Selector + Export Button inline */}
-        <div className="flex items-center gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+        <div className="flex items-center gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm [-webkit-overflow-scrolling:touch]">
           {TIMEFRAME_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => applyFilter("timeframe", opt.value)}
-              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
+              className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all ${
                 timeframe === opt.value
                   ? "bg-brand text-white shadow-sm"
                   : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
@@ -183,13 +193,13 @@ export function DashboardClient({
             </button>
           ))}
 
-          <div className="mx-1 h-4 w-px bg-slate-200" />
+          <div className="mx-1 h-4 w-px shrink-0 bg-slate-200" />
 
           {/* Export Filtered Report Button directly next to All Time */}
           <a
             href={`/api/reports/export?${searchParams.toString()}&format=xlsx`}
             download
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition-all hover:bg-emerald-100 hover:text-emerald-800"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition-all hover:bg-emerald-100 hover:text-emerald-800"
             title="Download executive report (.xlsx) with applied filters"
           >
             <svg
@@ -204,15 +214,15 @@ export function DashboardClient({
                 clipRule="evenodd"
               />
             </svg>
-            <span>Export Report</span>
+            <span>Export</span>
           </a>
         </div>
       </div>
 
       {/* Multi-Dimensional Filter Toolbar */}
       <Card className="border-slate-200/90 bg-white/90 p-3 sm:p-4 shadow-sm backdrop-blur">
-        <div className="flex items-center justify-between pb-2">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 20 20"
@@ -225,21 +235,52 @@ export function DashboardClient({
                 clipRule="evenodd"
               />
             </svg>
-            <span>Analytics Filters</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+              Analytics Filters
+            </span>
+            {activeFilterCount > 0 && (
+              <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
           </div>
 
-          {hasActiveFilters && (
+          <div className="flex items-center gap-2 sm:gap-3">
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                className="text-xs font-medium text-brand hover:underline"
+              >
+                Reset all
+              </button>
+            )}
+
+            {/* Mobile collapsible button */}
             <button
               type="button"
-              onClick={resetAllFilters}
-              className="text-xs font-medium text-brand hover:underline"
+              onClick={() => setFiltersOpen(!filtersOpen)}
+              className="flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 sm:hidden hover:bg-slate-200 transition-colors"
             >
-              Reset all filters
+              <span>{filtersOpen ? "Hide" : "Filter"}</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className={`h-3.5 w-3.5 transition-transform ${filtersOpen ? "rotate-180" : ""}`}
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                  clipRule="evenodd"
+                />
+              </svg>
             </button>
-          )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
+        <div className={`mt-3 ${filtersOpen ? "block" : "hidden sm:block"}`}>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
           {/* Sector Filter */}
           <div>
             <label className="mb-1 block text-[11px] font-medium text-slate-500">Sector</label>
@@ -382,10 +423,11 @@ export function DashboardClient({
             )}
           </div>
         )}
+        </div>
       </Card>
 
       {/* Executive Metric Strip */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
         {/* Total Leads */}
         <Card className="relative overflow-hidden p-4 transition-all hover:shadow-md">
           <div className="flex items-start justify-between">
@@ -485,7 +527,7 @@ export function DashboardClient({
         </Card>
 
         {/* Reply Rate */}
-        <Card className="relative overflow-hidden p-4 transition-all hover:shadow-md">
+        <Card className="relative overflow-hidden p-4 transition-all hover:shadow-md col-span-2 sm:col-span-1 md:col-span-1 lg:col-span-1">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-medium text-slate-500">Reply Rate</p>
@@ -508,7 +550,7 @@ export function DashboardClient({
 
       {/* Navigation Tabs for In-Depth Analytics */}
       <div className="border-b border-slate-200">
-        <nav className="-mb-px flex space-x-6 text-sm font-medium">
+        <nav className="-mb-px flex space-x-4 sm:space-x-6 overflow-x-auto text-sm font-medium pb-px [-webkit-overflow-scrolling:touch]">
           <button
             type="button"
             onClick={() => setActiveTab("overview")}

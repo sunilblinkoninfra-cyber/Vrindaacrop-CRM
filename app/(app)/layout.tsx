@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { SignOutButton } from "@/components/sign-out-button";
 import { NavLink } from "@/components/nav-link";
 import { MobileNav } from "@/components/mobile-nav";
+import { BottomNav } from "@/components/bottom-nav";
 import {
   IconDashboard,
   IconLeads,
@@ -43,54 +44,62 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex">
-        <div className="flex items-center gap-2.5 px-5 py-5">
-          <Image src="/logo.png" alt="VrindaaCorp" width={36} height={36} className="h-9 w-9 object-contain" priority />
-          <div>
+      {/* Sidebar: hidden on mobile (<768px), compact icon-rail on tablet (768px-1023px), expanded on desktop (>=1024px) */}
+      <aside className="fixed inset-y-0 left-0 z-20 hidden flex-col border-r border-slate-200 bg-white md:flex md:w-16 lg:w-64">
+        <div className="flex items-center gap-2.5 px-3.5 py-4 md:justify-center lg:justify-start lg:px-5 lg:py-5">
+          <Image src="/logo.png" alt="VrindaaCorp" width={36} height={36} className="h-9 w-9 shrink-0 object-contain" priority />
+          <div className="hidden lg:block">
             <div className="text-[15px] font-semibold leading-tight text-slate-900">VrindaaCorp</div>
             <div className="text-xs text-slate-400">Lead CRM &amp; Outreach</div>
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2 lg:px-3">
           {visibleNav.map((item) => (
-            <NavLink key={item.href} href={item.href} label={item.label} icon={item.icon} />
+            <NavLink key={item.href} href={item.href} label={item.label} icon={item.icon} compactOnTablet />
           ))}
         </nav>
 
-        <div className="border-t border-slate-200 p-3">
-          <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-            <Link href="/account" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg hover:opacity-80" title="Account settings">
+        <div className="border-t border-slate-200 p-2 lg:p-3">
+          <div className="flex items-center gap-3 rounded-lg md:justify-center lg:justify-start">
+            <Link href="/account" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg hover:opacity-80 md:justify-center lg:justify-start" title="Account settings">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
                 {initials}
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="hidden min-w-0 flex-1 lg:block">
                 <div className="truncate text-xs font-medium text-slate-700">{name}</div>
                 <div className="truncate text-[11px] text-slate-400">{email}</div>
               </div>
             </Link>
-            <SignOutButton />
+            <div className="hidden lg:block">
+              <SignOutButton />
+            </div>
           </div>
         </div>
       </aside>
 
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur lg:hidden">
+      {/* Mobile Top Header: visible only on phones (<768px) */}
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 px-3.5 py-2.5 shadow-sm backdrop-blur md:hidden pt-safe">
         <div className="flex min-w-0 items-center gap-2.5">
           <MobileNav role={role} name={name} email={email} initials={initials} />
-          <Image src="/logo.png" alt="VrindaaCorp" width={30} height={30} className="h-7 w-7 object-contain" priority />
+          <Image src="/logo.png" alt="VrindaaCorp" width={32} height={32} className="h-8 w-8 shrink-0 object-contain" priority />
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-900">VrindaaCorp</div>
-            <div className="truncate text-[10px] text-slate-400">Lead CRM &amp; Outreach</div>
+            <div className="truncate text-sm font-bold text-slate-900 leading-none">VrindaaCorp</div>
+            <div className="truncate text-[10px] text-slate-400 mt-0.5">Enterprise CRM</div>
           </div>
         </div>
-        <Link href="/account" aria-label="Open account settings" className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
+        <Link href="/account" aria-label="Open account settings" className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600 shadow-sm">
           {initials}
         </Link>
       </header>
 
-      <main className="ml-0 px-4 py-5 sm:px-6 sm:py-6 lg:ml-64 lg:px-8 lg:py-8">
+      {/* Main content: adjusted margin and padding across phone, tablet, and desktop */}
+      <main className="ml-0 px-3.5 pt-4 pb-28 sm:px-6 sm:py-6 md:ml-16 md:pb-8 lg:ml-64 lg:px-8 lg:py-8">
         <div className="mx-auto max-w-6xl">{children}</div>
       </main>
+
+      {/* Mobile Bottom Navigation Bar: visible only on phones (<768px) */}
+      <BottomNav role={role} />
     </div>
   );
 }

@@ -110,3 +110,11 @@ export const IconContract = (p: IconProps) => (
     <path d="M9 13l2 2 4-4" />
   </svg>
 );
+
+export const IconMenu = (p: IconProps) => (
+  <svg {...base} {...p}>
+    <line x1="4" y1="6" x2="20" y2="6" />
+    <line x1="4" y1="12" x2="20" y2="12" />
+    <line x1="4" y1="18" x2="20" y2="18" />
+  </svg>
+);
