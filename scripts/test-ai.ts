@@ -68,7 +68,7 @@ async function main() {
 
     const durationOutreach = Date.now() - t1;
     console.log(`✅ Generated in ${durationOutreach}ms!`);
-    console.log(`   Generated flag: ${outreach.generated ? "🤖 AI Generated" : "📋 Fallback Template"}`);
+    console.log(`   Engine Used:    ${outreach.generated ? "Offline LLM (Ollama)" : "Static Fallback"}`);
     console.log(`   Subject:        "${outreach.subject}"`);
     console.log(`   Body snippet:   ${outreach.html.slice(0, 140)}...`);
   } catch (err: any) {
@@ -87,7 +87,7 @@ async function main() {
 
     const durationReply = Date.now() - t2;
     console.log(`✅ Generated in ${durationReply}ms!`);
-    console.log(`   Generated flag: ${reply.generated ? "🤖 AI Generated" : "📋 Fallback Template"}`);
+    console.log(`   Engine Used:    ${reply.generated ? "Offline LLM (Ollama)" : "Static Fallback"}`);
     console.log(`   Subject:        "${reply.subject}"`);
     console.log(`   Body snippet:   ${reply.bodyText.slice(0, 140)}...`);
   } catch (err: any) {
