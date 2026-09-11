@@ -39,7 +39,7 @@ export function BottomNav({ role }: BottomNavProps) {
   return (
     <nav
       aria-label="Mobile bottom navigation"
-      className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-slate-200/90 bg-white/95 px-2 py-1 shadow-[0_-2px_10px_rgba(0,0,0,0.04)] backdrop-blur-md lg:hidden pb-safe"
+      className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-slate-200/80 bg-white/85 px-2 py-1 shadow-[0_-2px_10px_rgba(0,0,0,0.04)] backdrop-blur-md lg:hidden pb-safe"
     >
       {items.map((item) => {
         const isActive =

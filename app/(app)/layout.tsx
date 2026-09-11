@@ -79,7 +79,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Mobile Top Header: visible only on phones (<768px) */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 px-3.5 py-2.5 shadow-sm backdrop-blur md:hidden pt-safe">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200/80 bg-white/80 px-3.5 py-2.5 shadow-xs backdrop-blur-md md:hidden pt-safe">
         <div className="flex min-w-0 items-center gap-2.5">
           <MobileNav role={role} name={name} email={email} initials={initials} />
           <Image src="/logo.png" alt="VrindaaCorp" width={32} height={32} className="h-8 w-8 shrink-0 object-contain" priority />

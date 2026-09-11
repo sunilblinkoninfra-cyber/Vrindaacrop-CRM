@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { SignOutButton } from "@/components/sign-out-button";
 import { NavLink } from "@/components/nav-link";
 import {
@@ -29,9 +30,24 @@ const nav = [
   { href: "/settings/users", label: "Users", icon: <IconUsers />, ownerOnly: true },
 ];
 
-export function MobileNav({ role, name, email, initials }: { role?: string; name: string; email: string; initials: string }) {
+export function MobileNav({
+  role,
+  name,
+  email,
+  initials,
+}: {
+  role?: string;
+  name: string;
+  email: string;
+  initials: string;
+}) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const visibleNav = nav.filter((item) => !item.ownerOnly || role !== "AGENT");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     function handleOpen() {
@@ -41,6 +57,96 @@ export function MobileNav({ role, name, email, initials }: { role?: string; name
     return () => window.removeEventListener("open-mobile-nav", handleOpen);
   }, []);
 
+  // Close drawer on escape key
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    if (open) {
+      window.addEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
+  const drawerContent = open && mounted ? (
+    <div
+      className="fixed inset-0 z-50 lg:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Mobile navigation"
+    >
+      {/* Translucent backdrop with frosted blur */}
+      <div
+        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity"
+        onClick={() => setOpen(false)}
+        aria-hidden="true"
+      />
+
+      {/* Slide-over Drawer Panel */}
+      <aside className="relative flex h-full w-[min(20rem,88vw)] flex-col bg-white shadow-2xl animate-in slide-in-from-left duration-200">
+        {/* Translucent Drawer Top Bar */}
+        <div className="flex items-center justify-between border-b border-slate-200/80 bg-white/85 px-4 py-3.5 backdrop-blur-md pt-[max(0.875rem,env(safe-area-inset-top,0px))]">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Image
+              src="/logo.png"
+              alt="VrindaaCorp"
+              width={34}
+              height={34}
+              className="h-8 w-8 object-contain"
+              priority
+            />
+            <div className="min-w-0">
+              <div className="truncate text-sm font-bold text-slate-900">VrindaaCorp</div>
+              <div className="truncate text-[11px] text-slate-400">Lead CRM &amp; Outreach</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => setOpen(false)}
+            className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100/80 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors"
+          >
+            <span className="text-xl leading-none" aria-hidden="true">×</span>
+          </button>
+        </div>
+
+        {/* Navigation Links List */}
+        <nav
+          className="flex-1 space-y-1 overflow-y-auto px-3 py-3 [-webkit-overflow-scrolling:touch]"
+          onClick={() => setOpen(false)}
+        >
+          {visibleNav.map((item) => (
+            <NavLink key={item.href} href={item.href} label={item.label} icon={item.icon} />
+          ))}
+        </nav>
+
+        {/* Translucent Footer User Profile Card */}
+        <div className="border-t border-slate-200/80 bg-slate-50/80 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] backdrop-blur-xs">
+          <div className="flex items-center gap-3 rounded-xl px-2 py-2">
+            <Link
+              href="/account"
+              onClick={() => setOpen(false)}
+              className="flex min-w-0 flex-1 items-center gap-3 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-xs font-bold text-brand ring-1 ring-brand/20">
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-semibold text-slate-800">{name}</div>
+                <div className="truncate text-[11px] text-slate-400">{email}</div>
+              </div>
+            </Link>
+            <SignOutButton />
+          </div>
+        </div>
+      </aside>
+    </div>
+  ) : null;
+
   return (
     <>
       <button
@@ -48,7 +154,7 @@ export function MobileNav({ role, name, email, initials }: { role?: string; name
         aria-label="Open navigation"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand/30"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200/80 bg-white/80 text-slate-600 shadow-xs backdrop-blur-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand/30"
       >
         <span className="sr-only">Open navigation</span>
         <span className="flex flex-col gap-1" aria-hidden="true">
@@ -58,56 +164,9 @@ export function MobileNav({ role, name, email, initials }: { role?: string; name
         </span>
       </button>
 
-      {open && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Mobile navigation">
-          <button
-            type="button"
-            aria-label="Close navigation"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-[1px]"
-            onClick={() => setOpen(false)}
-          />
-          <aside className="relative flex h-full w-[min(19rem,88vw)] flex-col bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <Image src="/logo.png" alt="VrindaaCorp" width={34} height={34} className="h-8 w-8 object-contain" priority />
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-slate-900">VrindaaCorp</div>
-                  <div className="truncate text-[11px] text-slate-400">Lead CRM &amp; Outreach</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Close navigation"
-                onClick={() => setOpen(false)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-2xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-              >
-                <span aria-hidden="true">×</span>
-              </button>
-            </div>
-
-            <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3" onClick={() => setOpen(false)}>
-              {visibleNav.map((item) => (
-                <NavLink key={item.href} href={item.href} label={item.label} icon={item.icon} />
-              ))}
-            </nav>
-
-            <div className="border-t border-slate-200 p-3">
-              <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-                <Link href="/account" onClick={() => setOpen(false)} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg hover:opacity-80">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
-                    {initials}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium text-slate-700">{name}</div>
-                    <div className="truncate text-[11px] text-slate-400">{email}</div>
-                  </div>
-                </Link>
-                <SignOutButton />
-              </div>
-            </div>
-          </aside>
-        </div>
-      )}
+      {mounted && typeof document !== "undefined" && drawerContent
+        ? createPortal(drawerContent, document.body)
+        : null}
     </>
   );
 }
