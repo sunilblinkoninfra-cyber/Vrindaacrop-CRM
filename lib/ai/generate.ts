@@ -33,11 +33,12 @@ export async function generateEmail(args: {
 ${COMPANY_CONTEXT}
 
 Write a short, professional, personalized cold outreach email. Rules:
-- Address the recipient by first name and reference their company by name naturally.
+- In the "subject" field, generate a concise, engaging B2B subject line (under 60 characters) relevant to their sector.
+- In the "bodyHtml" field, address the recipient by first name and reference their company by name naturally.
 - Tie the value proposition to their sector where relevant; do not invent facts about their company.
 - Keep it concise (90-140 words), warm and specific — not generic or salesy.
 - One clear call to action (a brief call/meeting). No emojis. No pushy language.
-- Return the body as simple HTML using only <p> and <a> tags. Do NOT include a subject line, signature block, greeting duplication, or unsubscribe text in the body.`;
+- Return the body as simple HTML using only <p> and <a> tags. Do NOT include duplicate subject lines, signature blocks, or unsubscribe text inside bodyHtml.`;
 
   const userPrompt = `Lead: ${name} at ${company} (sector: ${sector}).
 Campaign step: ${stepLabel ?? "initial outreach"}.
@@ -57,12 +58,15 @@ Brief / offer to convey: ${brief}`;
     },
   });
 
-  if (!parsed?.subject || !parsed?.bodyHtml) {
+  const bodyHtml = parsed?.bodyHtml?.trim();
+  if (!bodyHtml) {
     // Provider unavailable / parse failure → deterministic fallback so a campaign
     // never stalls on a single lead.
     return fallbackEmail(name, company, sector, brief);
   }
-  return { subject: parsed.subject.trim(), html: parsed.bodyHtml.trim(), generated: true };
+
+  const subject = parsed.subject?.trim() || `Facility management support for ${company}`;
+  return { subject, html: bodyHtml, generated: true };
 }
 
 function fallbackEmail(name: string, company: string, sector: string, brief: string): GeneratedEmail {
