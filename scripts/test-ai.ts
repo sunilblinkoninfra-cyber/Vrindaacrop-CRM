@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { env } from "@/lib/env";
 import { isAiConfigured } from "@/lib/ai/client";
 import { generateEmail } from "@/lib/ai/generate";
