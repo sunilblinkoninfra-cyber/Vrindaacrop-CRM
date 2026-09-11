@@ -122,7 +122,9 @@ SEND_WINDOW_START="09:00"
 SEND_WINDOW_END="18:00"
 
 # AI Provider (anthropic or local)
-AI_PROVIDER="anthropic"
+AI_PROVIDER="local"
+LOCAL_AI_BASE_URL="http://127.0.0.1:11434/v1"
+LOCAL_AI_MODEL="llama3.1:8b"
 ANTHROPIC_API_KEY=""
 AI_MODEL="claude-opus-5"
 
