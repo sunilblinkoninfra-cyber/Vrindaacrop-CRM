@@ -132,14 +132,17 @@ export async function syncImapReplies(options?: {
         });
 
         if (!existingEvent) {
-          // Parse snippet from message source
+          // Parse snippet and full body from message source
           let snippet = subject;
+          let fullBody = subject;
           if (msg.source) {
             try {
               const parsed = await simpleParser(msg.source);
-              snippet = (parsed.text || parsed.html || subject).slice(0, 300).trim();
+              fullBody = (parsed.text || parsed.html || subject).trim();
+              snippet = fullBody.slice(0, 300).trim();
             } catch {
               snippet = subject;
+              fullBody = subject;
             }
           }
 
@@ -147,6 +150,8 @@ export async function syncImapReplies(options?: {
             fromEmail: fromAddr,
             messageId,
             snippet,
+            subject,
+            body: fullBody,
           });
 
           if (res.matched && !res.alreadyProcessed) {

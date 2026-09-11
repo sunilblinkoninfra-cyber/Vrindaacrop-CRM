@@ -289,3 +289,79 @@ export async function syncRepliesAction() {
   return res;
 }
 
+/**
+ * Simulate an inbound email revert from a client.
+ * Triggers the AI intelligence layer to generate a proposed draft and notify the agent on WhatsApp.
+ */
+export async function simulateInboundRevertAction(
+  leadId: string,
+  subject: string,
+  body: string
+) {
+  const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+  if (!lead) throw new Error("Lead not found.");
+
+  const { handleReply } = await import("@/lib/outreach/reply");
+  const result = await handleReply({
+    fromEmail: lead.email,
+    subject: subject.trim() || `Re: Facility Management Support for ${lead.company || "Your Facility"}`,
+    body: body.trim(),
+    snippet: body.trim().slice(0, 300),
+  });
+
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/leads");
+  revalidatePath("/pipeline");
+  return result;
+}
+
+/**
+ * Simulate the agent replying to the WhatsApp bot.
+ * If user replies "YES" / "SEND", dispatches the email.
+ * If user suggests edits, AI inculcates them and produces a revised draft (v2, v3, etc.).
+ */
+export async function simulateWhatsAppAgentReplyAction(
+  draftId: string,
+  replyText: string
+) {
+  const draft = await prisma.proposedReplyDraft.findUnique({ where: { id: draftId } });
+  if (!draft) throw new Error("Proposed reply draft not found.");
+
+  const { handleIncomingWhatsAppMessage } = await import("@/lib/whatsapp-revert");
+  const result = await handleIncomingWhatsAppMessage({
+    fromPhone: draft.agentPhone || "+919999999999",
+    messageText: replyText.trim(),
+  });
+
+  revalidatePath(`/leads/${draft.leadId}`);
+  revalidatePath("/leads");
+  revalidatePath("/pipeline");
+  return result;
+}
+
+/**
+ * Directly approve and dispatch a proposed draft from the CRM UI.
+ */
+export async function manualApproveDraftAction(draftId: string) {
+  const { manualApproveDraft } = await import("@/lib/whatsapp-revert");
+  const result = await manualApproveDraft(draftId);
+  const draft = await prisma.proposedReplyDraft.findUnique({ where: { id: draftId } });
+  if (draft) {
+    revalidatePath(`/leads/${draft.leadId}`);
+  }
+  return result;
+}
+
+/**
+ * Directly request a revision with feedback from the CRM UI.
+ */
+export async function manualReviseDraftAction(draftId: string, feedback: string) {
+  const { manualReviseDraft } = await import("@/lib/whatsapp-revert");
+  const result = await manualReviseDraft(draftId, feedback);
+  const draft = await prisma.proposedReplyDraft.findUnique({ where: { id: draftId } });
+  if (draft) {
+    revalidatePath(`/leads/${draft.leadId}`);
+  }
+  return result;
+}
+

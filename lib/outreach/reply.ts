@@ -20,6 +20,8 @@ export async function handleReply(args: {
   fromEmail: string;
   messageId?: string;
   snippet?: string;
+  subject?: string;
+  body?: string;
 }) {
   const match = await findLeadForEvent(args.messageId, args.fromEmail);
   if (!match) return { matched: false };
@@ -88,5 +90,20 @@ export async function handleReply(args: {
   // Fire notification AFTER the transaction commits — network calls should not
   // hold a DB transaction open.
   await notifyOwnerOfReply(leadForNotify, args.snippet ?? "");
+
+  // Generate AI Proposed Draft & trigger WhatsApp Human-in-the-Loop Loop
+  const fullBody = args.body || args.snippet || "Client replied to outreach email.";
+  try {
+    const { processInboundEmailForDrafting } = await import("@/lib/whatsapp-revert");
+    await processInboundEmailForDrafting({
+      leadId: leadForNotify.id,
+      fromEmail: args.fromEmail,
+      subject: args.subject,
+      body: fullBody,
+    });
+  } catch (draftErr) {
+    console.error("[processInboundEmailForDrafting error]:", draftErr);
+  }
+
   return { matched: true, leadId };
 }

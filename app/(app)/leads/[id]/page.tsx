@@ -16,6 +16,7 @@ import {
   LeadActions,
 } from "./detail-client";
 import { ContractCard } from "./contract-card";
+import { ReplyDraftCard } from "./reply-draft-card";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
         activities: { include: { user: true }, orderBy: { createdAt: "desc" }, take: 30 },
         emailEvents: { orderBy: { createdAt: "desc" }, take: 30 },
         enrollments: { include: { campaign: { select: { name: true } } }, orderBy: { updatedAt: "desc" } },
+        proposedDrafts: { orderBy: { createdAt: "desc" }, take: 10 },
       },
     }),
     prisma.user.findMany({ select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
@@ -69,6 +71,15 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
+          <ReplyDraftCard
+            leadId={lead.id}
+            leadName={fullName(lead.firstName, lead.lastName) || lead.email}
+            leadCompany={lead.company}
+            leadEmail={lead.email}
+            drafts={lead.proposedDrafts}
+            defaultAgentPhone={lead.owner?.whatsappNumber || lead.phone}
+          />
+
           <Card>
             <h2 className="mb-3 text-sm font-semibold text-slate-700">Notes</h2>
             <NoteForm leadId={lead.id} />

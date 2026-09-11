@@ -23,6 +23,26 @@ interface TriggerOutreachModalProps {
 }
 
 const PRESET_LIMITS = [10, 25, 50, 100];
+const PRESET_DELAYS = [
+  { label: "0s (Instant)", value: 0 },
+  { label: "10s", value: 10 },
+  { label: "30s (Rec.)", value: 30 },
+  { label: "60s (1m)", value: 60 },
+  { label: "120s (2m)", value: 120 },
+];
+
+function formatEstimatedDuration(count: number, delaySec: number) {
+  if (delaySec <= 0 || count <= 1) return "Immediate dispatch";
+  const totalSeconds = (count - 1) * delaySec;
+  if (totalSeconds < 60) return `~${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const remSec = totalSeconds % 60;
+  if (minutes < 60) {
+    return remSec > 0 ? `~${minutes}m ${remSec}s` : `~${minutes}m`;
+  }
+  const hours = (totalSeconds / 3600).toFixed(1);
+  return `~${hours}h`;
+}
 
 export function TriggerOutreachModal({
   isOpen,
@@ -37,6 +57,8 @@ export function TriggerOutreachModal({
   const router = useRouter();
   const [limit, setLimit] = useState<number>(50);
   const [customInput, setCustomInput] = useState<string>("50");
+  const [delay, setDelay] = useState<number>(30);
+  const [customDelayInput, setCustomDelayInput] = useState<string>("30");
   const [isPending, startTransition] = useTransition();
 
   if (!isOpen) return null;
@@ -54,16 +76,32 @@ export function TriggerOutreachModal({
     }
   }
 
+  function handleDelayPresetClick(value: number) {
+    setDelay(value);
+    setCustomDelayInput(String(value));
+  }
+
+  function handleCustomDelayChange(val: string) {
+    setCustomDelayInput(val);
+    const parsed = parseInt(val, 10);
+    if (!isNaN(parsed) && parsed >= 0) {
+      setDelay(Math.min(parsed, 3600));
+    }
+  }
+
   function handleDispatch(e: React.FormEvent) {
     e.preventDefault();
     const finalLimit = Math.max(1, Math.min(limit || 50, 1000));
+    const finalDelay = Math.max(0, Math.min(delay || 0, 3600));
 
     startTransition(async () => {
       try {
-        const res = await triggerCampaignOutreach(campaignId, finalLimit);
+        const res = await triggerCampaignOutreach(campaignId, finalLimit, finalDelay);
         onClose();
-        if (res.sent > 0) {
-          onSuccess?.(`⚡ Outreach triggered: ${res.sent} email(s) sent successfully (Target: ${finalLimit})!`);
+        if (res.backgroundQueued) {
+          onSuccess?.(`⚡ ${res.message || `Outreach triggered: sending ${finalLimit} emails with ${finalDelay}s delay`}`);
+        } else if (res.sent > 0) {
+          onSuccess?.(`⚡ Outreach triggered: ${res.sent} email(s) sent successfully (Target: ${finalLimit}${finalDelay > 0 ? `, Delay: ${finalDelay}s` : ""})!`);
         } else if (res.capReached) {
           onSuccess?.(`Daily sending cap reached. Remaining emails remain queued for next window.`);
         } else {
@@ -182,12 +220,69 @@ export function TriggerOutreachModal({
             </div>
           </div>
 
+          {/* Inter-Email Delay Selector */}
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                Delay Between Emails
+              </label>
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                ⏱️ Span: {formatEstimatedDuration(limit, delay)}
+              </span>
+            </div>
+
+            {/* Quick Delay Preset Buttons */}
+            <div className="mt-2 grid grid-cols-5 gap-2">
+              {PRESET_DELAYS.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => handleDelayPresetClick(preset.value)}
+                  className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition-all ${
+                    delay === preset.value && customDelayInput === String(preset.value)
+                      ? "border-blue-600 bg-blue-50 text-blue-800 shadow-sm ring-1 ring-blue-600"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Delay Input */}
+            <div className="mt-3">
+              <div className="relative">
+                <Input
+                  type="number"
+                  min={0}
+                  max={3600}
+                  value={customDelayInput}
+                  onChange={(e) => handleCustomDelayChange(e.target.value)}
+                  placeholder="Custom delay in seconds"
+                  className="font-mono text-sm font-semibold"
+                />
+                <span className="pointer-events-none absolute right-3 top-2.5 text-xs text-slate-400">
+                  seconds
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Staggers outgoing dispatches to protect domain reputation and maximize inbox placement.
+              </p>
+            </div>
+          </div>
+
           {/* Delivery Configuration & Safeguards Summary */}
           <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3.5 space-y-2 text-xs">
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Outbound Mailbox:</span>
               <span className="font-mono font-medium text-slate-800">
                 {outboundSender?.fromEmail || "sales@vrindaacorp.com"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">Inter-Email Pace:</span>
+              <span className="font-semibold text-blue-700">
+                {delay > 0 ? `${delay}s delay (${formatEstimatedDuration(limit, delay)} total)` : "Instant (no delay)"}
               </span>
             </div>
             <div className="flex items-center justify-between">

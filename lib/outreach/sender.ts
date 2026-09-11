@@ -43,6 +43,7 @@ function jitterMs() {
 
 export type RunSenderOptions = {
   limit?: number;
+  delaySeconds?: number;
   ignoreSendWindow?: boolean;
   campaignId?: string;
 };
@@ -198,7 +199,13 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
       skipped++;
     }
 
-    if (attempted < maxPerRun) await sleep(jitterMs());
+    if (attempted < maxPerRun) {
+      const waitMs =
+        opts.delaySeconds !== undefined && opts.delaySeconds > 0
+          ? opts.delaySeconds * 1000
+          : jitterMs();
+      await sleep(waitMs);
+    }
   }
 
   const finalDay = await prisma.sendingDay.findUnique({ where: { id: day.id } });

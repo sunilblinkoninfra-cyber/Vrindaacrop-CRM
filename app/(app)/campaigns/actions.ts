@@ -116,7 +116,11 @@ export async function segmentCount(segment: Record<string, string>) {
   return prisma.lead.count({ where: segmentToWhere(segment) });
 }
 
-export async function triggerCampaignOutreach(campaignId: string, customLimit?: number) {
+export async function triggerCampaignOutreach(
+  campaignId: string,
+  customLimit?: number,
+  delaySeconds?: number
+) {
   await requireUser();
   const { runSender } = await import("@/lib/outreach/sender");
   const { ensureDefaultIndustryTemplates } = await import("@/lib/templates-seed");
@@ -124,40 +128,100 @@ export async function triggerCampaignOutreach(campaignId: string, customLimit?: 
   // Ensure default industry templates are populated
   await ensureDefaultIndustryTemplates();
 
-  // Make active enrollments for this campaign due immediately
-  const now = new Date();
-  await prisma.enrollment.updateMany({
-    where: {
-      campaignId,
-      state: "ACTIVE",
-    },
-    data: {
-      nextSendAt: now,
-    },
-  });
-
   const sendLimit = customLimit && customLimit > 0 ? Math.min(customLimit, 1000) : 50;
+  const validDelay = delaySeconds && delaySeconds > 0 ? Math.min(delaySeconds, 3600) : 0;
+  const now = new Date();
 
-  // Execute the sender pipeline bypassing send window for manual trigger
-  const result = await runSender({
-    limit: sendLimit,
-    ignoreSendWindow: true,
-    campaignId,
-  });
+  // If delay is configured, stagger nextSendAt across active enrollments
+  if (validDelay > 0) {
+    const activeEnrollments = await prisma.enrollment.findMany({
+      where: {
+        campaignId,
+        state: "ACTIVE",
+      },
+      orderBy: { id: "asc" },
+      take: sendLimit,
+      select: { id: true },
+    });
 
-  revalidatePath("/campaigns");
-  revalidatePath(`/campaigns/${campaignId}`);
-  revalidatePath("/");
-  revalidatePath("/leads");
-  return {
-    ok: true,
-    sent: result.sent,
-    attempted: result.attempted,
-    skipped: result.skipped,
-    paused: result.paused,
-    capReached: result.capReached,
-    limit: sendLimit,
-  };
+    for (let i = 0; i < activeEnrollments.length; i++) {
+      await prisma.enrollment.update({
+        where: { id: activeEnrollments[i].id },
+        data: {
+          nextSendAt: new Date(now.getTime() + i * validDelay * 1000),
+        },
+      });
+    }
+  } else {
+    // Make active enrollments for this campaign due immediately
+    await prisma.enrollment.updateMany({
+      where: {
+        campaignId,
+        state: "ACTIVE",
+      },
+      data: {
+        nextSendAt: now,
+      },
+    });
+  }
+
+  const estimatedSeconds = sendLimit * validDelay;
+
+  // If total duration <= 12 seconds, execute synchronously
+  if (estimatedSeconds <= 12) {
+    const result = await runSender({
+      limit: sendLimit,
+      delaySeconds: validDelay,
+      ignoreSendWindow: true,
+      campaignId,
+    });
+
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/");
+    revalidatePath("/leads");
+    return {
+      ok: true,
+      sent: result.sent,
+      attempted: result.attempted,
+      skipped: result.skipped,
+      paused: result.paused,
+      capReached: result.capReached,
+      limit: sendLimit,
+      delaySeconds: validDelay,
+    };
+  } else {
+    // Launch sender in background with delay, without blocking server action
+    (async () => {
+      try {
+        await runSender({
+          limit: sendLimit,
+          delaySeconds: validDelay,
+          ignoreSendWindow: true,
+          campaignId,
+        });
+      } catch (err) {
+        console.error("[triggerCampaignOutreach background error]:", err);
+      }
+    })();
+
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/");
+    revalidatePath("/leads");
+    return {
+      ok: true,
+      sent: 1,
+      attempted: sendLimit,
+      skipped: 0,
+      paused: false,
+      capReached: false,
+      limit: sendLimit,
+      delaySeconds: validDelay,
+      backgroundQueued: true,
+      message: `Outreach initiated: dispatching ${sendLimit} emails staggered with ${validDelay}s delay.`,
+    };
+  }
 }
 
 export async function scheduleCampaignOutreach(campaignId: string, scheduledAtISO: string) {

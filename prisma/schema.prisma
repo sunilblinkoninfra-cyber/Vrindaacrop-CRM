@@ -110,6 +110,7 @@ model Lead {
   tasks         Task[]
   notifications Notification[]
   companyAlerts CompanyAlert[]
+  proposedDrafts ProposedReplyDraft[]
 
   @@index([emailNormalized])
   @@index([stage])
@@ -517,4 +518,39 @@ model CompanyAlert {
 
   @@unique([leadId, kind])
   @@index([kind])
+}
+
+// ---------------------------------------------------------------------------
+// AI Proposed Reply Drafts & WhatsApp Confirmation Loop
+// ---------------------------------------------------------------------------
+
+enum ReplyDraftStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REVISED
+  SENT
+  REJECTED
+}
+
+model ProposedReplyDraft {
+  id             String           @id @default(cuid())
+  leadId         String
+  lead           Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  inboundSubject String?
+  inboundBody    String           @db.Text
+  draftSubject   String
+  draftBody      String           @db.Text
+  status         ReplyDraftStatus @default(PENDING_APPROVAL)
+  agentPhone     String?
+  agentUserId    String?
+  version        Int              @default(1)
+  revisionNotes  String?          @db.Text
+  sentMessageId  String?
+  sentAt         DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([leadId])
+  @@index([agentPhone])
+  @@index([status])
 }
