@@ -116,137 +116,221 @@ export async function segmentCount(segment: Record<string, string>) {
   return prisma.lead.count({ where: segmentToWhere(segment) });
 }
 
+export type ScheduleOutreachOptions = {
+  campaignId: string;
+  startDateISO?: string;
+  limit?: number;
+  delaySeconds?: number;
+  activateIfDraft?: boolean;
+};
+
+export async function scheduleCampaignOutreach(
+  campaignIdOrOptions: string | ScheduleOutreachOptions,
+  legacyScheduledAtISO?: string
+) {
+  await requireUser();
+
+  const options: ScheduleOutreachOptions =
+    typeof campaignIdOrOptions === "string"
+      ? { campaignId: campaignIdOrOptions, startDateISO: legacyScheduledAtISO }
+      : campaignIdOrOptions;
+
+  const {
+    campaignId,
+    startDateISO,
+    limit,
+    delaySeconds = 0,
+    activateIfDraft = true,
+  } = options;
+
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    select: { id: true, name: true, status: true },
+  });
+  if (!campaign) throw new Error("Campaign not found.");
+
+  if (activateIfDraft && campaign.status === "DRAFT") {
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: "ACTIVE" },
+    });
+  }
+
+  const { ensureDefaultIndustryTemplates } = await import("@/lib/templates-seed");
+  await ensureDefaultIndustryTemplates();
+
+  const parsedStart = startDateISO ? new Date(startDateISO) : new Date();
+  const startDate = isNaN(parsedStart.getTime()) ? new Date() : parsedStart;
+  const now = new Date();
+  const isImmediate = startDate.getTime() <= now.getTime();
+
+  // Support delay up to 30 days (1 month = 2,592,000 seconds)
+  const MAX_DELAY_SECONDS = 30 * 24 * 3600;
+  const validDelay = Math.max(0, Math.min(delaySeconds, MAX_DELAY_SECONDS));
+  const sendLimit = limit && limit > 0 ? Math.min(limit, 1000) : 50;
+
+  // Query target active enrollments
+  const activeEnrollments = await prisma.enrollment.findMany({
+    where: {
+      campaignId,
+      state: "ACTIVE",
+    },
+    orderBy: { id: "asc" },
+    take: sendLimit,
+    select: { id: true },
+  });
+
+  if (activeEnrollments.length === 0) {
+    return {
+      ok: true,
+      count: 0,
+      scheduledAt: startDate.toISOString(),
+      message: "No active enrollments found for this campaign.",
+    };
+  }
+
+  // Stagger nextSendAt for each enrollment: startDate + (i * validDelay)
+  const baseTime = startDate.getTime();
+  for (let i = 0; i < activeEnrollments.length; i++) {
+    const nextSendAt = new Date(baseTime + i * validDelay * 1000);
+    await prisma.enrollment.update({
+      where: { id: activeEnrollments[i].id },
+      data: { nextSendAt },
+    });
+  }
+
+  const firstSendDate = new Date(baseTime);
+  const lastSendDate = new Date(baseTime + (activeEnrollments.length - 1) * validDelay * 1000);
+  const totalSpanSeconds = (activeEnrollments.length - 1) * validDelay;
+
+  // If immediate dispatch requested (startDate <= now):
+  if (isImmediate) {
+    const { runSender } = await import("@/lib/outreach/sender");
+    const estimatedSeconds = activeEnrollments.length * validDelay;
+
+    if (estimatedSeconds <= 12) {
+      // Execute immediately synchronously
+      const result = await runSender({
+        limit: activeEnrollments.length,
+        delaySeconds: validDelay,
+        ignoreSendWindow: true,
+        campaignId,
+      });
+
+      revalidatePath("/campaigns");
+      revalidatePath(`/campaigns/${campaignId}`);
+      revalidatePath("/");
+      revalidatePath("/leads");
+
+      return {
+        ok: true,
+        count: activeEnrollments.length,
+        sent: result.sent,
+        attempted: result.attempted,
+        skipped: result.skipped,
+        paused: result.paused,
+        capReached: result.capReached,
+        limit: activeEnrollments.length,
+        delaySeconds: validDelay,
+        scheduledAt: firstSendDate.toISOString(),
+        lastSendAt: lastSendDate.toISOString(),
+        totalSpanSeconds,
+        isImmediate: true,
+      };
+    } else if (validDelay <= 120) {
+      // Short delay: launch sender in background
+      (async () => {
+        try {
+          await runSender({
+            limit: activeEnrollments.length,
+            delaySeconds: validDelay,
+            ignoreSendWindow: true,
+            campaignId,
+          });
+        } catch (err) {
+          console.error("[scheduleCampaignOutreach background error]:", err);
+        }
+      })();
+
+      revalidatePath("/campaigns");
+      revalidatePath(`/campaigns/${campaignId}`);
+      revalidatePath("/");
+      revalidatePath("/leads");
+
+      return {
+        ok: true,
+        count: activeEnrollments.length,
+        sent: 1,
+        attempted: activeEnrollments.length,
+        backgroundQueued: true,
+        delaySeconds: validDelay,
+        scheduledAt: firstSendDate.toISOString(),
+        lastSendAt: lastSendDate.toISOString(),
+        totalSpanSeconds,
+        isImmediate: true,
+        message: `Outreach initiated: dispatching ${activeEnrollments.length} emails staggered with ${validDelay}s delay.`,
+      };
+    } else {
+      // Long delay (e.g. 1 hour, 1 day, etc.): dispatch the FIRST due lead immediately
+      try {
+        await runSender({
+          limit: 1,
+          delaySeconds: 0,
+          ignoreSendWindow: true,
+          campaignId,
+        });
+      } catch (err) {
+        console.error("[scheduleCampaignOutreach initial send error]:", err);
+      }
+
+      revalidatePath("/campaigns");
+      revalidatePath(`/campaigns/${campaignId}`);
+      revalidatePath("/");
+      revalidatePath("/leads");
+
+      return {
+        ok: true,
+        count: activeEnrollments.length,
+        sent: 1,
+        attempted: activeEnrollments.length,
+        delaySeconds: validDelay,
+        scheduledAt: firstSendDate.toISOString(),
+        lastSendAt: lastSendDate.toISOString(),
+        totalSpanSeconds,
+        isImmediate: true,
+        message: `First email dispatched now! Remaining ${activeEnrollments.length - 1} email(s) are scheduled at ${validDelay}s intervals.`,
+      };
+    }
+  }
+
+  // Future scheduled dispatch (startDate > now):
+  revalidatePath("/campaigns");
+  revalidatePath(`/campaigns/${campaignId}`);
+  revalidatePath("/");
+  revalidatePath("/leads");
+
+  return {
+    ok: true,
+    count: activeEnrollments.length,
+    scheduledAt: firstSendDate.toISOString(),
+    lastSendAt: lastSendDate.toISOString(),
+    totalSpanSeconds,
+    delaySeconds: validDelay,
+    isImmediate: false,
+    message: `Outreach scheduled starting ${firstSendDate.toLocaleString()} across ${activeEnrollments.length} leads.`,
+  };
+}
+
 export async function triggerCampaignOutreach(
   campaignId: string,
   customLimit?: number,
   delaySeconds?: number
 ) {
-  await requireUser();
-  const { runSender } = await import("@/lib/outreach/sender");
-  const { ensureDefaultIndustryTemplates } = await import("@/lib/templates-seed");
-
-  // Ensure default industry templates are populated
-  await ensureDefaultIndustryTemplates();
-
-  const sendLimit = customLimit && customLimit > 0 ? Math.min(customLimit, 1000) : 50;
-  const validDelay = delaySeconds && delaySeconds > 0 ? Math.min(delaySeconds, 3600) : 0;
-  const now = new Date();
-
-  // If delay is configured, stagger nextSendAt across active enrollments
-  if (validDelay > 0) {
-    const activeEnrollments = await prisma.enrollment.findMany({
-      where: {
-        campaignId,
-        state: "ACTIVE",
-      },
-      orderBy: { id: "asc" },
-      take: sendLimit,
-      select: { id: true },
-    });
-
-    for (let i = 0; i < activeEnrollments.length; i++) {
-      await prisma.enrollment.update({
-        where: { id: activeEnrollments[i].id },
-        data: {
-          nextSendAt: new Date(now.getTime() + i * validDelay * 1000),
-        },
-      });
-    }
-  } else {
-    // Make active enrollments for this campaign due immediately
-    await prisma.enrollment.updateMany({
-      where: {
-        campaignId,
-        state: "ACTIVE",
-      },
-      data: {
-        nextSendAt: now,
-      },
-    });
-  }
-
-  const estimatedSeconds = sendLimit * validDelay;
-
-  // If total duration <= 12 seconds, execute synchronously
-  if (estimatedSeconds <= 12) {
-    const result = await runSender({
-      limit: sendLimit,
-      delaySeconds: validDelay,
-      ignoreSendWindow: true,
-      campaignId,
-    });
-
-    revalidatePath("/campaigns");
-    revalidatePath(`/campaigns/${campaignId}`);
-    revalidatePath("/");
-    revalidatePath("/leads");
-    return {
-      ok: true,
-      sent: result.sent,
-      attempted: result.attempted,
-      skipped: result.skipped,
-      paused: result.paused,
-      capReached: result.capReached,
-      limit: sendLimit,
-      delaySeconds: validDelay,
-    };
-  } else {
-    // Launch sender in background with delay, without blocking server action
-    (async () => {
-      try {
-        await runSender({
-          limit: sendLimit,
-          delaySeconds: validDelay,
-          ignoreSendWindow: true,
-          campaignId,
-        });
-      } catch (err) {
-        console.error("[triggerCampaignOutreach background error]:", err);
-      }
-    })();
-
-    revalidatePath("/campaigns");
-    revalidatePath(`/campaigns/${campaignId}`);
-    revalidatePath("/");
-    revalidatePath("/leads");
-    return {
-      ok: true,
-      sent: 1,
-      attempted: sendLimit,
-      skipped: 0,
-      paused: false,
-      capReached: false,
-      limit: sendLimit,
-      delaySeconds: validDelay,
-      backgroundQueued: true,
-      message: `Outreach initiated: dispatching ${sendLimit} emails staggered with ${validDelay}s delay.`,
-    };
-  }
-}
-
-export async function scheduleCampaignOutreach(campaignId: string, scheduledAtISO: string) {
-  await requireUser();
-  const targetDate = new Date(scheduledAtISO);
-  if (isNaN(targetDate.getTime())) {
-    throw new Error("Invalid schedule date provided.");
-  }
-
-  const updated = await prisma.enrollment.updateMany({
-    where: {
-      campaignId,
-      state: "ACTIVE",
-    },
-    data: {
-      nextSendAt: targetDate,
-    },
+  return scheduleCampaignOutreach({
+    campaignId,
+    startDateISO: new Date().toISOString(),
+    limit: customLimit,
+    delaySeconds,
+    activateIfDraft: true,
   });
-
-  revalidatePath("/campaigns");
-  revalidatePath(`/campaigns/${campaignId}`);
-  revalidatePath("/");
-  return {
-    ok: true,
-    count: updated.count,
-    scheduledAt: targetDate.toISOString(),
-  };
 }

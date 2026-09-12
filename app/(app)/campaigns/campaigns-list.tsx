@@ -29,6 +29,7 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
   const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [triggeringCampaign, setTriggeringCampaign] = useState<CampaignItem | null>(null);
+  const [triggeringMode, setTriggeringMode] = useState<"immediate" | "scheduled">("immediate");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -98,26 +99,86 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
 
               <div className="flex items-center gap-2 self-end sm:self-center">
                 {c.status === "ACTIVE" && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={isPending}
+                      onClick={() => {
+                        setTriggeringMode("immediate");
+                        setTriggeringCampaign(c);
+                      }}
+                      className="h-8 min-h-0 px-2.5 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                      title="Send campaign outreach immediately"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        className="mr-1 h-3.5 w-3.5"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      <span>Trigger Now</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={isPending}
+                      onClick={() => {
+                        setTriggeringMode("scheduled");
+                        setTriggeringCampaign(c);
+                      }}
+                      className="h-8 min-h-0 px-2.5 py-1 text-xs"
+                      title="Schedule date, time & staggered delay up to 1 month"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        className="mr-1 h-3.5 w-3.5 text-slate-500"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      <span>Schedule</span>
+                    </Button>
+                  </>
+                )}
+
+                {c.status === "DRAFT" && (
                   <Button
                     type="button"
-                    variant="primary"
+                    variant="secondary"
                     disabled={isPending}
-                    onClick={() => setTriggeringCampaign(c)}
-                    className="h-8 min-h-0 px-2.5 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => {
+                      setTriggeringMode("scheduled");
+                      setTriggeringCampaign(c);
+                    }}
+                    className="h-8 min-h-0 px-2.5 py-1 text-xs"
+                    title="Schedule date, time & activate campaign"
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       viewBox="0 0 20 20"
                       fill="currentColor"
-                      className="mr-1 h-3.5 w-3.5"
+                      className="mr-1 h-3.5 w-3.5 text-slate-500"
                     >
                       <path
                         fillRule="evenodd"
-                        d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
+                        d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z"
                         clipRule="evenodd"
                       />
                     </svg>
-                    <span>Trigger Now</span>
+                    <span>Schedule</span>
                   </Button>
                 )}
 
@@ -168,7 +229,7 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
         )}
       </ul>
 
-      {/* Trigger Outreach Batch Size Modal */}
+      {/* Trigger & Schedule Outreach Modal */}
       {triggeringCampaign && (
         <TriggerOutreachModal
           isOpen={Boolean(triggeringCampaign)}
@@ -176,6 +237,7 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
           campaignId={triggeringCampaign.id}
           campaignName={triggeringCampaign.name}
           enrolledCount={triggeringCampaign._count.enrollments}
+          initialMode={triggeringMode}
           onSuccess={(msg) => setSuccess(msg)}
           onError={(msg) => setError(msg)}
         />

@@ -75,17 +75,9 @@ export function CampaignBuilder({
   const [editStepTemplateId, setEditStepTemplateId] = useState("");
   const [editStepDelay, setEditStepDelay] = useState("0");
 
-  // Trigger Outreach Modal State
+  // Trigger & Schedule Outreach Modal State
   const [isTriggerModalOpen, setIsTriggerModalOpen] = useState(false);
-
-  // Schedule Modal State
-  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-  const [scheduledDateTime, setScheduledDateTime] = useState(() => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(9, 30, 0, 0);
-    return tomorrow.toISOString().slice(0, 16);
-  });
+  const [modalMode, setModalMode] = useState<"immediate" | "scheduled">("immediate");
 
   function run(fn: () => Promise<unknown>, successMsg?: string) {
     setError("");
@@ -95,8 +87,8 @@ export function CampaignBuilder({
         await fn();
         if (successMsg) setSuccess(successMsg);
         router.refresh();
-      } catch (e) {
-        setError((e as Error).message);
+      } catch (e: any) {
+        setError(e?.message ?? "Operation failed.");
       }
     });
   }
@@ -154,35 +146,13 @@ export function CampaignBuilder({
   }
 
   function handleTriggerOutreachNow() {
-    if (status !== "ACTIVE") {
-      setError("Please activate the campaign before triggering outreach.");
-      return;
-    }
+    setModalMode("immediate");
     setIsTriggerModalOpen(true);
   }
 
-  function handleSaveSchedule(e: React.FormEvent) {
-    e.preventDefault();
-    if (!scheduledDateTime) {
-      setError("Please select a valid schedule date and time.");
-      return;
-    }
-    run(async () => {
-      const res = await scheduleCampaignOutreach(campaignId, scheduledDateTime);
-      setIsScheduleModalOpen(false);
-      setSuccess(`📅 Outreach scheduled for ${new Date(res.scheduledAt).toLocaleString()} (${res.count} leads updated).`);
-    });
-  }
-
-  function setQuickSchedule(offsetHours: number, targetHour?: number) {
-    const d = new Date();
-    if (targetHour !== undefined) {
-      d.setDate(d.getDate() + (offsetHours >= 24 ? 1 : 0));
-      d.setHours(targetHour, 30, 0, 0);
-    } else {
-      d.setHours(d.getHours() + offsetHours);
-    }
-    setScheduledDateTime(d.toISOString().slice(0, 16));
+  function handleOpenScheduleModal() {
+    setModalMode("scheduled");
+    setIsTriggerModalOpen(true);
   }
 
   return (
@@ -503,13 +473,27 @@ export function CampaignBuilder({
 
         <div className="flex flex-wrap items-center gap-2">
           {status !== "ACTIVE" && (
-            <Button
-              className="w-full sm:w-auto"
-              disabled={pending}
-              onClick={() => run(() => setStatus(campaignId, "ACTIVE"), "Campaign activated.")}
-            >
-              Activate Campaign
-            </Button>
+            <>
+              <Button
+                className="w-full sm:w-auto"
+                disabled={pending}
+                onClick={() => run(() => setStatus(campaignId, "ACTIVE"), "Campaign activated.")}
+              >
+                Activate Campaign
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending}
+                onClick={handleOpenScheduleModal}
+                className="w-full sm:w-auto"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mr-1.5 h-4 w-4 text-slate-500">
+                  <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd" />
+                </svg>
+                Schedule Outreach
+              </Button>
+            </>
           )}
 
           {status === "ACTIVE" && (
@@ -533,7 +517,7 @@ export function CampaignBuilder({
                 type="button"
                 variant="secondary"
                 disabled={pending}
-                onClick={() => setIsScheduleModalOpen(true)}
+                onClick={handleOpenScheduleModal}
                 className="w-full sm:w-auto"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mr-1.5 h-4 w-4 text-slate-500">
@@ -568,89 +552,7 @@ export function CampaignBuilder({
         </div>
       </Card>
 
-      {/* Schedule Outreach Modal Dialog */}
-      {isScheduleModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => !pending && setIsScheduleModalOpen(false)}
-          />
-
-          <div className="relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-2xl ring-1 ring-slate-900/10">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900">Schedule Campaign Outreach</h3>
-                <p className="text-xs text-slate-500">Set the target date and time to start sending emails.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsScheduleModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-lg font-bold"
-              >
-                &times;
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveSchedule} className="mt-4 space-y-4">
-              {/* Quick Presets */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Quick Presets</label>
-                <div className="mt-1.5 grid grid-cols-2 gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setQuickSchedule(1)}
-                    className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-left hover:bg-slate-100 hover:border-slate-300"
-                  >
-                    <div className="font-medium text-slate-800">In 1 Hour</div>
-                    <div className="text-[10px] text-slate-400">Quick dispatch</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setQuickSchedule(24, 9)}
-                    className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-left hover:bg-slate-100 hover:border-slate-300"
-                  >
-                    <div className="font-medium text-slate-800">Tomorrow 09:30 AM</div>
-                    <div className="text-[10px] text-slate-400">Morning business slot</div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Custom Date Time Picker */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Custom Date &amp; Time</label>
-                <Input
-                  type="datetime-local"
-                  value={scheduledDateTime}
-                  onChange={(e) => setScheduledDateTime(e.target.value)}
-                  className="mt-1 font-mono text-xs"
-                  required
-                />
-              </div>
-
-              <div className="rounded-lg bg-teal-50 p-3 text-xs text-teal-800">
-                <span>💡 Leads will be automatically matched to their industry templates upon dispatch.</span>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setIsScheduleModalOpen(false)}
-                  disabled={pending}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" disabled={pending}>
-                  {pending ? "Saving Schedule…" : "Save Schedule"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Trigger Outreach Batch Size Modal Dialog */}
+      {/* Trigger & Schedule Outreach Modal Dialog */}
       <TriggerOutreachModal
         isOpen={isTriggerModalOpen}
         onClose={() => setIsTriggerModalOpen(false)}
@@ -658,6 +560,7 @@ export function CampaignBuilder({
         campaignName={campaignName}
         enrolledCount={enrolledCount}
         outboundSender={outboundSender}
+        initialMode={modalMode}
         onSuccess={(msg) => setSuccess(msg)}
         onError={(msg) => setError(msg)}
       />
