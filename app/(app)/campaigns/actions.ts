@@ -118,6 +118,7 @@ export async function segmentCount(segment: Record<string, string>) {
 
 export type ScheduleOutreachOptions = {
   campaignId: string;
+  selectedDatesISO?: string[];
   startDateISO?: string;
   limit?: number;
   delaySeconds?: number;
@@ -137,6 +138,7 @@ export async function scheduleCampaignOutreach(
 
   const {
     campaignId,
+    selectedDatesISO,
     startDateISO,
     limit,
     delaySeconds = 0,
@@ -159,14 +161,6 @@ export async function scheduleCampaignOutreach(
   const { ensureDefaultIndustryTemplates } = await import("@/lib/templates-seed");
   await ensureDefaultIndustryTemplates();
 
-  const parsedStart = startDateISO ? new Date(startDateISO) : new Date();
-  const startDate = isNaN(parsedStart.getTime()) ? new Date() : parsedStart;
-  const now = new Date();
-  const isImmediate = startDate.getTime() <= now.getTime();
-
-  // Support delay up to 30 days (1 month = 2,592,000 seconds)
-  const MAX_DELAY_SECONDS = 30 * 24 * 3600;
-  const validDelay = Math.max(0, Math.min(delaySeconds, MAX_DELAY_SECONDS));
   const sendLimit = limit && limit > 0 ? Math.min(limit, 1000) : 50;
 
   // Query target active enrollments
@@ -184,10 +178,61 @@ export async function scheduleCampaignOutreach(
     return {
       ok: true,
       count: 0,
-      scheduledAt: startDate.toISOString(),
+      scheduledAt: new Date().toISOString(),
       message: "No active enrollments found for this campaign.",
     };
   }
+
+  // Check if calendar selected dates were provided
+  const validSelectedDates = (selectedDatesISO || [])
+    .map((iso) => new Date(iso))
+    .filter((d) => !isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  if (validSelectedDates.length > 0) {
+    const chunkCount = validSelectedDates.length;
+    const leadsPerDay = Math.max(1, Math.ceil(activeEnrollments.length / chunkCount));
+
+    for (let i = 0; i < activeEnrollments.length; i++) {
+      const dateIdx = Math.min(Math.floor(i / leadsPerDay), chunkCount - 1);
+      const targetDay = validSelectedDates[dateIdx];
+      // Stagger intra-day by 20s so emails on the same day don't collide
+      const intraDayOffsetMs = (i % leadsPerDay) * 20 * 1000;
+      const nextSendAt = new Date(targetDay.getTime() + intraDayOffsetMs);
+
+      await prisma.enrollment.update({
+        where: { id: activeEnrollments[i].id },
+        data: { nextSendAt },
+      });
+    }
+
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/");
+    revalidatePath("/leads");
+
+    const firstDate = validSelectedDates[0];
+    const lastDate = validSelectedDates[validSelectedDates.length - 1];
+
+    return {
+      ok: true,
+      count: activeEnrollments.length,
+      scheduledAt: firstDate.toISOString(),
+      lastSendAt: lastDate.toISOString(),
+      datesCount: validSelectedDates.length,
+      isImmediate: false,
+      message: `Outreach scheduled across ${validSelectedDates.length} selected calendar date(s) for ${activeEnrollments.length} lead(s).`,
+    };
+  }
+
+  const parsedStart = startDateISO ? new Date(startDateISO) : new Date();
+  const startDate = isNaN(parsedStart.getTime()) ? new Date() : parsedStart;
+  const now = new Date();
+  const isImmediate = startDate.getTime() <= now.getTime();
+
+  // Support delay up to 30 days (1 month = 2,592,000 seconds)
+  const MAX_DELAY_SECONDS = 30 * 24 * 3600;
+  const validDelay = Math.max(0, Math.min(delaySeconds, MAX_DELAY_SECONDS));
 
   // Stagger nextSendAt for each enrollment: startDate + (i * validDelay)
   const baseTime = startDate.getTime();

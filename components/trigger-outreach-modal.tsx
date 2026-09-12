@@ -23,82 +23,122 @@ interface TriggerOutreachModalProps {
   onError?: (msg: string) => void;
 }
 
-type DelayUnit = "seconds" | "minutes" | "hours" | "days";
-
 const PRESET_LIMITS = [10, 25, 50, 100];
 
-const DELAY_PRESETS: { label: string; value: number; unit: DelayUnit }[] = [
-  { label: "0s (Instant)", value: 0, unit: "seconds" },
-  { label: "30s (Rec.)", value: 30, unit: "seconds" },
-  { label: "2 mins", value: 2, unit: "minutes" },
-  { label: "15 mins", value: 15, unit: "minutes" },
-  { label: "1 hour", value: 1, unit: "hours" },
-  { label: "4 hours", value: 4, unit: "hours" },
-  { label: "1 day", value: 1, unit: "days" },
-  { label: "3 days", value: 3, unit: "days" },
-  { label: "7 days (1 wk)", value: 7, unit: "days" },
-  { label: "30 days (1 mo)", value: 30, unit: "days" },
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
-function toSeconds(val: number, unit: DelayUnit): number {
-  if (val <= 0) return 0;
-  switch (unit) {
-    case "seconds":
-      return Math.min(val, 2592000);
-    case "minutes":
-      return Math.min(val * 60, 2592000);
-    case "hours":
-      return Math.min(val * 3600, 2592000);
-    case "days":
-      return Math.min(val * 86400, 2592000);
-  }
+const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+const TIME_PRESETS = [
+  { label: "09:30 AM (Morning)", value: "09:30" },
+  { label: "11:30 AM (Pre-Lunch)", value: "11:30" },
+  { label: "02:30 PM (Afternoon)", value: "14:30" },
+  { label: "04:30 PM (End of Day)", value: "16:30" },
+];
+
+function formatDateKey(year: number, month: number, day: number): string {
+  const m = String(month + 1).padStart(2, "0");
+  const d = String(day).padStart(2, "0");
+  return `${year}-${m}-${d}`;
 }
 
-function formatDuration(totalSeconds: number): string {
-  if (totalSeconds <= 0) return "Instant";
-  if (totalSeconds < 60) return `~${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const remSec = totalSeconds % 60;
-  if (minutes < 60) {
-    return remSec > 0 ? `~${minutes}m ${remSec}s` : `~${minutes}m`;
-  }
-  const hours = (totalSeconds / 3600).toFixed(1);
-  if (totalSeconds < 86400) {
-    return `~${hours} hours`;
-  }
-  const days = (totalSeconds / 86400).toFixed(1);
-  return `~${days} days`;
+function parseDateKey(key: string): { year: number; month: number; day: number } {
+  const [y, m, d] = key.split("-").map(Number);
+  return { year: y, month: m - 1, day: d };
 }
 
-function formatPace(val: number, unit: DelayUnit): string {
-  if (val <= 0) return "Instant (no delay)";
-  if (unit === "seconds") return `${val}s delay between emails`;
-  if (unit === "minutes") return `${val} min${val > 1 ? "s" : ""} between emails`;
-  if (unit === "hours") return `${val} hour${val > 1 ? "s" : ""} between emails`;
-  return `${val} day${val > 1 ? "s" : ""} between emails`;
+function getTodayKey(): string {
+  const now = new Date();
+  return formatDateKey(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-function getQuickDateISO(type: "1h" | "tomorrow_morning" | "tomorrow_afternoon" | "next_monday"): string {
+function getTomorrowKey(): string {
   const d = new Date();
-  if (type === "1h") {
-    d.setHours(d.getHours() + 1);
-  } else if (type === "tomorrow_morning") {
-    d.setDate(d.getDate() + 1);
-    d.setHours(9, 30, 0, 0);
-  } else if (type === "tomorrow_afternoon") {
-    d.setDate(d.getDate() + 1);
-    d.setHours(14, 30, 0, 0);
-  } else if (type === "next_monday") {
-    const daysUntilMonday = ((1 - d.getDay() + 7) % 7) || 7;
-    d.setDate(d.getDate() + daysUntilMonday);
-    d.setHours(10, 0, 0, 0);
+  d.setDate(d.getDate() + 1);
+  return formatDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+type CalendarDayCell = {
+  key: string;
+  dayNumber: number;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  isPast: boolean;
+  dateObj: Date;
+};
+
+function generateMonthGrid(viewDate: Date): CalendarDayCell[] {
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const todayKey = getTodayKey();
+
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
+  const totalDaysInMonth = new Date(year, month + 1, 0).getDate();
+  const prevMonthDaysCount = new Date(year, month, 0).getDate();
+
+  const cells: CalendarDayCell[] = [];
+
+  // Padding days from previous month
+  for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+    const dayNum = prevMonthDaysCount - i;
+    const prevDate = new Date(year, month - 1, dayNum);
+    const key = formatDateKey(prevDate.getFullYear(), prevDate.getMonth(), dayNum);
+    cells.push({
+      key,
+      dayNumber: dayNum,
+      isCurrentMonth: false,
+      isToday: key === todayKey,
+      isPast: key < todayKey,
+      dateObj: prevDate,
+    });
   }
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const date = String(d.getDate()).padStart(2, "0");
-  const hours = String(d.getHours()).padStart(2, "0");
-  const mins = String(d.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${date}T${hours}:${mins}`;
+
+  // Current month days
+  for (let dayNum = 1; dayNum <= totalDaysInMonth; dayNum++) {
+    const key = formatDateKey(year, month, dayNum);
+    const dateObj = new Date(year, month, dayNum);
+    cells.push({
+      key,
+      dayNumber: dayNum,
+      isCurrentMonth: true,
+      isToday: key === todayKey,
+      isPast: key < todayKey,
+      dateObj,
+    });
+  }
+
+  // Trailing padding to make clean 7-column rows
+  const remainder = cells.length % 7;
+  if (remainder > 0) {
+    const nextDaysNeeded = 7 - remainder;
+    for (let dayNum = 1; dayNum <= nextDaysNeeded; dayNum++) {
+      const nextDate = new Date(year, month + 1, dayNum);
+      const key = formatDateKey(nextDate.getFullYear(), nextDate.getMonth(), dayNum);
+      cells.push({
+        key,
+        dayNumber: dayNum,
+        isCurrentMonth: false,
+        isToday: key === todayKey,
+        isPast: key < todayKey,
+        dateObj: nextDate,
+      });
+    }
+  }
+
+  return cells;
 }
 
 export function TriggerOutreachModal({
@@ -107,113 +147,226 @@ export function TriggerOutreachModal({
   campaignId,
   campaignName,
   enrolledCount = 0,
-  initialMode = "immediate",
+  initialMode = "scheduled",
   outboundSender,
   onSuccess,
   onError,
 }: TriggerOutreachModalProps) {
   const router = useRouter();
 
-  // Mode: Send Immediately vs Schedule for Later
+  // Mode: Immediate vs Scheduled Calendar
   const [mode, setMode] = useState<"immediate" | "scheduled">(initialMode);
 
-  // Scheduled Date & Time
-  const [scheduledDateTime, setScheduledDateTime] = useState<string>(() =>
-    getQuickDateISO("tomorrow_morning")
-  );
+  // Calendar View Month
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
+
+  // Selected Dates (keys: YYYY-MM-DD)
+  const [selectedDateKeys, setSelectedDateKeys] = useState<string[]>(() => [
+    getTomorrowKey(),
+  ]);
+
+  // Outbound Dispatch Time of Day (e.g. "09:30")
+  const [dispatchTime, setDispatchTime] = useState<string>("09:30");
 
   // Email Batch Limit
   const [limit, setLimit] = useState<number>(50);
-  const [customInput, setCustomInput] = useState<string>("50");
+  const [customLimitInput, setCustomLimitInput] = useState<string>("50");
 
-  // Inter-Email Delay (up to 30 days / 1 month)
-  const [delayValue, setDelayValue] = useState<number>(30);
-  const [delayUnit, setDelayUnit] = useState<DelayUnit>("seconds");
-  const [customDelayInput, setCustomDelayInput] = useState<string>("30");
+  // Immediate mode spacing (seconds)
+  const [immediateDelay, setImmediateDelay] = useState<number>(0);
 
   const [isPending, startTransition] = useTransition();
 
-  const totalDelaySeconds = useMemo(() => {
-    return toSeconds(delayValue, delayUnit);
-  }, [delayValue, delayUnit]);
+  // Month Grid Cells
+  const monthCells = useMemo(() => {
+    return generateMonthGrid(calendarMonth);
+  }, [calendarMonth]);
 
-  // Projected Schedule Summary
-  const scheduleProjection = useMemo(() => {
-    const startDate = mode === "immediate" ? new Date() : new Date(scheduledDateTime);
-    const validStart = isNaN(startDate.getTime()) ? new Date() : startDate;
-    const count = Math.max(1, limit);
-    const spanSeconds = Math.max(0, count - 1) * totalDelaySeconds;
-    const endDate = new Date(validStart.getTime() + spanSeconds * 1000);
+  // Month navigation
+  function handlePrevMonth() {
+    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  }
 
-    return {
-      startDate: validStart,
-      endDate,
-      totalSpanDuration: formatDuration(spanSeconds),
-    };
-  }, [mode, scheduledDateTime, limit, totalDelaySeconds]);
+  function handleNextMonth() {
+    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  }
 
-  if (!isOpen) return null;
+  function handleJumpToday() {
+    setCalendarMonth(new Date());
+  }
+
+  // Toggle single date
+  function handleToggleDate(key: string, isPast: boolean) {
+    if (isPast) return;
+    setSelectedDateKeys((prev) => {
+      if (prev.includes(key)) {
+        if (prev.length === 1) return prev; // keep at least 1 date
+        return prev.filter((k) => k !== key);
+      } else {
+        return [...prev, key].sort();
+      }
+    });
+  }
+
+  // Quick Calendar Shortcuts
+  function selectTomorrow() {
+    const tomKey = getTomorrowKey();
+    const tomDate = new Date();
+    tomDate.setDate(tomDate.getDate() + 1);
+    setCalendarMonth(new Date(tomDate.getFullYear(), tomDate.getMonth(), 1));
+    setSelectedDateKeys([tomKey]);
+  }
+
+  function selectNext7Days() {
+    const keys: string[] = [];
+    const base = new Date();
+    for (let i = 1; i <= 7; i++) {
+      const d = new Date();
+      d.setDate(base.getDate() + i);
+      keys.push(formatDateKey(d.getFullYear(), d.getMonth(), d.getDate()));
+    }
+    setSelectedDateKeys(keys);
+  }
+
+  function selectNext2WeeksWeekdays() {
+    const keys: string[] = [];
+    const base = new Date();
+    let checkedDays = 1;
+    while (keys.length < 10 && checkedDays <= 20) {
+      const d = new Date();
+      d.setDate(base.getDate() + checkedDays);
+      const dayOfWeek = d.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        keys.push(formatDateKey(d.getFullYear(), d.getMonth(), d.getDate()));
+      }
+      checkedDays++;
+    }
+    setSelectedDateKeys(keys);
+  }
+
+  function selectThisMonthWeekdays() {
+    const keys: string[] = [];
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+
+    for (let day = today.getDate() + 1; day <= totalDays; day++) {
+      const d = new Date(year, month, day);
+      const dayOfWeek = d.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        keys.push(formatDateKey(year, month, day));
+      }
+    }
+    if (keys.length === 0) {
+      selectNext7Days();
+    } else {
+      setSelectedDateKeys(keys);
+    }
+  }
+
+  function handleClearDates() {
+    setSelectedDateKeys([getTomorrowKey()]);
+  }
 
   function handlePresetLimitClick(value: number) {
     setLimit(value);
-    setCustomInput(String(value));
+    setCustomLimitInput(String(value));
   }
 
   function handleCustomLimitChange(val: string) {
-    setCustomInput(val);
+    setCustomLimitInput(val);
     const parsed = parseInt(val, 10);
     if (!isNaN(parsed) && parsed > 0) {
       setLimit(Math.min(parsed, 1000));
     }
   }
 
-  function handlePresetDelayClick(preset: { value: number; unit: DelayUnit }) {
-    setDelayValue(preset.value);
-    setDelayUnit(preset.unit);
-    setCustomDelayInput(String(preset.value));
-  }
+  // Live Calendar Schedule Projection
+  const calendarProjection = useMemo(() => {
+    if (selectedDateKeys.length === 0) return null;
+    const sortedKeys = [...selectedDateKeys].sort();
+    const firstKey = sortedKeys[0];
+    const lastKey = sortedKeys[sortedKeys.length - 1];
 
-  function handleCustomDelayValChange(val: string) {
-    setCustomDelayInput(val);
-    const parsed = parseInt(val, 10);
-    if (!isNaN(parsed) && parsed >= 0) {
-      setDelayValue(parsed);
-    }
-  }
+    const [hh, mm] = dispatchTime.split(":").map(Number);
+    const firstParsed = parseDateKey(firstKey);
+    const lastParsed = parseDateKey(lastKey);
 
-  function handleQuickDateSelect(type: "1h" | "tomorrow_morning" | "tomorrow_afternoon" | "next_monday") {
-    setScheduledDateTime(getQuickDateISO(type));
-  }
+    const firstDate = new Date(firstParsed.year, firstParsed.month, firstParsed.day, hh || 9, mm || 30);
+    const lastDate = new Date(lastParsed.year, lastParsed.month, lastParsed.day, hh || 9, mm || 30);
+
+    const daysCount = sortedKeys.length;
+    const totalLeads = Math.max(1, limit);
+    const leadsPerDay = Math.ceil(totalLeads / daysCount);
+
+    const spanDays = Math.max(
+      1,
+      Math.round((lastDate.getTime() - firstDate.getTime()) / (86400 * 1000)) + 1
+    );
+
+    return {
+      daysCount,
+      leadsPerDay,
+      firstDate,
+      lastDate,
+      spanDays,
+    };
+  }, [selectedDateKeys, dispatchTime, limit]);
+
+  if (!isOpen) return null;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const finalLimit = Math.max(1, Math.min(limit || 50, 1000));
-    const isImmediate = mode === "immediate";
 
     startTransition(async () => {
       try {
-        const res = await scheduleCampaignOutreach({
-          campaignId,
-          startDateISO: isImmediate ? undefined : new Date(scheduledDateTime).toISOString(),
-          limit: finalLimit,
-          delaySeconds: totalDelaySeconds,
-          activateIfDraft: true,
-        });
+        if (mode === "scheduled") {
+          if (selectedDateKeys.length === 0) {
+            onError?.("Please select at least one date on the calendar.");
+            return;
+          }
 
-        onClose();
+          const [hh, mm] = dispatchTime.split(":").map(Number);
+          const selectedDatesISO = selectedDateKeys.map((key) => {
+            const { year, month, day } = parseDateKey(key);
+            const dt = new Date(year, month, day, hh || 9, mm || 30, 0, 0);
+            return dt.toISOString();
+          });
 
-        if (res.isImmediate) {
+          const res = await scheduleCampaignOutreach({
+            campaignId,
+            selectedDatesISO,
+            limit: finalLimit,
+            activateIfDraft: true,
+          });
+
+          onClose();
+          onSuccess?.(
+            res.message ||
+              `📅 Outreach scheduled across ${selectedDateKeys.length} selected calendar date(s) starting ${new Date(res.scheduledAt).toLocaleString()}!`
+          );
+        } else {
+          // Immediate mode
+          const res = await scheduleCampaignOutreach({
+            campaignId,
+            startDateISO: new Date().toISOString(),
+            limit: finalLimit,
+            delaySeconds: immediateDelay,
+            activateIfDraft: true,
+          });
+
+          onClose();
           if (res.backgroundQueued) {
-            onSuccess?.(`⚡ ${res.message || `Outreach triggered: sending ${finalLimit} emails staggered by ${formatPace(delayValue, delayUnit)}`}`);
+            onSuccess?.(`⚡ ${res.message || `Outreach triggered: sending ${finalLimit} emails.`}`);
           } else if ((res.sent ?? 0) > 0) {
-            onSuccess?.(`⚡ Outreach triggered: ${res.sent} email(s) sent successfully (Target: ${finalLimit}${totalDelaySeconds > 0 ? `, Pace: ${formatPace(delayValue, delayUnit)}` : ""})!`);
+            onSuccess?.(`⚡ Outreach triggered: ${res.sent} email(s) sent successfully!`);
           } else if (res.capReached) {
             onSuccess?.(`Daily sending cap reached. Remaining emails remain queued for next window.`);
           } else {
             onSuccess?.(res.message || `Outreach triggered: ${res.count} leads queued.`);
           }
-        } else {
-          onSuccess?.(`📅 Outreach scheduled: starting ${new Date(res.scheduledAt).toLocaleString()} for ${res.count} leads (Pace: ${formatPace(delayValue, delayUnit)}).`);
         }
 
         router.refresh();
@@ -224,17 +377,17 @@ export function TriggerOutreachModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
-      {/* Translucent Backdrop */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
+      {/* Backdrop */}
       <div
         className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity"
         onClick={() => !isPending && onClose()}
       />
 
-      {/* Modal Card */}
-      <div className="relative z-10 max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/10 [-webkit-overflow-scrolling:touch]">
+      {/* Modal Dialog Card */}
+      <div className="relative z-10 max-h-[94vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/10 [-webkit-overflow-scrolling:touch]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
+        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-5 py-3.5 sm:px-6">
           <div>
             <div className="flex items-center gap-2">
               <span
@@ -244,12 +397,12 @@ export function TriggerOutreachModal({
                     : "bg-blue-100 text-blue-800"
                 }`}
               >
-                {mode === "immediate" ? "⚡ Instant Dispatch" : "📅 Scheduled Outreach"}
+                {mode === "immediate" ? "⚡ Instant Dispatch" : "📅 Calendar Outreach Scheduler"}
               </span>
-              <h3 className="text-base font-bold text-slate-900">Campaign Outreach Scheduler</h3>
+              <h3 className="text-base font-bold text-slate-900">Campaign Outbound Scheduling</h3>
             </div>
-            <p className="mt-1 text-xs text-slate-500">
-              Configure dates, batch limit, and delay pacing for{" "}
+            <p className="mt-0.5 text-xs text-slate-500">
+              Pick outbound dates on the calendar and dispatch times for{" "}
               <span className="font-semibold text-slate-700">{campaignName}</span>.
             </p>
           </div>
@@ -270,20 +423,6 @@ export function TriggerOutreachModal({
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-200/60 p-1 text-xs font-semibold">
             <button
               type="button"
-              onClick={() => setMode("immediate")}
-              className={`flex items-center justify-center gap-1.5 rounded-lg py-2 transition-all ${
-                mode === "immediate"
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-emerald-600">
-                <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
-              </svg>
-              <span>Send Immediately</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setMode("scheduled")}
               className={`flex items-center justify-center gap-1.5 rounded-lg py-2 transition-all ${
                 mode === "scheduled"
@@ -294,97 +433,232 @@ export function TriggerOutreachModal({
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-blue-600">
                 <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd" />
               </svg>
-              <span>Schedule for Later</span>
+              <span>📅 Calendar Schedule</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("immediate")}
+              className={`flex items-center justify-center gap-1.5 rounded-lg py-2 transition-all ${
+                mode === "immediate"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-emerald-600">
+                <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+              </svg>
+              <span>⚡ Send Immediately</span>
             </button>
           </div>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="space-y-5 p-5 sm:p-6">
-          {/* Section 1: Date & Time Picker (if scheduled) */}
+        <form onSubmit={handleSubmit} className="space-y-4 p-5 sm:p-6">
           {mode === "scheduled" && (
-            <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold uppercase tracking-wider text-blue-900">
-                  Target Start Date &amp; Time
-                </label>
-                <span className="text-[11px] font-medium text-blue-700">
-                  Asia/Kolkata (IST)
-                </span>
+            <div className="space-y-4">
+              {/* Interactive Month Calendar Card */}
+              <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/50 p-4 shadow-xs">
+                {/* Calendar Header: Month/Year + Navigation */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-900">
+                      {MONTH_NAMES[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleJumpToday}
+                      className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                    >
+                      Today
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={handlePrevMonth}
+                      title="Previous month"
+                      className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                        <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleNextMonth}
+                      title="Next month"
+                      className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                        <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Date Range Selectors */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-3 pb-2 text-[11px]">
+                  <span className="font-semibold text-slate-400 mr-0.5">Quick:</span>
+                  <button
+                    type="button"
+                    onClick={selectTomorrow}
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 font-medium text-slate-700 hover:border-brand hover:text-brand transition-colors"
+                  >
+                    Tomorrow
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectNext7Days}
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 font-medium text-slate-700 hover:border-brand hover:text-brand transition-colors"
+                  >
+                    Next 7 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectNext2WeeksWeekdays}
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 font-medium text-slate-700 hover:border-brand hover:text-brand transition-colors"
+                  >
+                    Next 2 Wks (Weekdays)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectThisMonthWeekdays}
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 font-medium text-slate-700 hover:border-brand hover:text-brand transition-colors"
+                  >
+                    All Weekdays This Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearDates}
+                    className="rounded-full px-2 py-0.5 font-medium text-slate-400 hover:text-red-600 transition-colors ml-auto"
+                  >
+                    Reset
+                  </button>
+                </div>
+
+                {/* Days of week header */}
+                <div className="grid grid-cols-7 gap-1 pt-1 text-center text-[11px] font-bold text-slate-400">
+                  {DAY_LABELS.map((day) => (
+                    <div key={day} className="py-1">
+                      {day}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Day Cells Grid */}
+                <div className="grid grid-cols-7 gap-1 pt-1">
+                  {monthCells.map((cell) => {
+                    const isSelected = selectedDateKeys.includes(cell.key);
+
+                    return (
+                      <button
+                        key={cell.key}
+                        type="button"
+                        onClick={() => handleToggleDate(cell.key, cell.isPast)}
+                        disabled={cell.isPast}
+                        className={`group relative flex h-8 w-full sm:h-9 items-center justify-center rounded-lg text-xs font-semibold transition-all ${
+                          cell.isPast
+                            ? "cursor-not-allowed text-slate-300 opacity-40"
+                            : isSelected
+                            ? "bg-emerald-600 text-white shadow-xs font-bold ring-2 ring-emerald-500/30 hover:bg-emerald-700"
+                            : cell.isCurrentMonth
+                            ? "text-slate-800 hover:bg-emerald-50 hover:text-emerald-700"
+                            : "text-slate-400 hover:bg-slate-100"
+                        } ${
+                          cell.isToday && !isSelected
+                            ? "ring-1 ring-emerald-600 font-extrabold text-emerald-700 bg-emerald-50/50"
+                            : ""
+                        }`}
+                      >
+                        <span>{cell.dayNumber}</span>
+                        {isSelected && (
+                          <span className="absolute bottom-0.5 h-1 w-1 rounded-full bg-white opacity-80" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Selected Dates Summary Counter */}
+                <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs">
+                  <div className="flex items-center gap-1.5 text-slate-700">
+                    <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
+                    <span className="font-semibold text-emerald-800">
+                      {selectedDateKeys.length} dispatch date{selectedDateKeys.length > 1 ? "s" : ""} selected
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-500">
+                    Click any day to toggle on/off
+                  </span>
+                </div>
               </div>
 
-              {/* Quick Presets for Date */}
-              <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                <button
-                  type="button"
-                  onClick={() => handleQuickDateSelect("1h")}
-                  className="rounded-lg border border-blue-200 bg-white p-2 text-left hover:border-blue-400 transition-all"
-                >
-                  <div className="font-semibold text-slate-800">In 1 Hour</div>
-                  <div className="text-[10px] text-slate-400">Quick future start</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickDateSelect("tomorrow_morning")}
-                  className="rounded-lg border border-blue-200 bg-white p-2 text-left hover:border-blue-400 transition-all"
-                >
-                  <div className="font-semibold text-slate-800">Tomorrow 09:30 AM</div>
-                  <div className="text-[10px] text-slate-400">Morning business slot</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickDateSelect("tomorrow_afternoon")}
-                  className="rounded-lg border border-blue-200 bg-white p-2 text-left hover:border-blue-400 transition-all"
-                >
-                  <div className="font-semibold text-slate-800">Tomorrow 02:30 PM</div>
-                  <div className="text-[10px] text-slate-400">Afternoon slot</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickDateSelect("next_monday")}
-                  className="rounded-lg border border-blue-200 bg-white p-2 text-left hover:border-blue-400 transition-all"
-                >
-                  <div className="font-semibold text-slate-800">Next Monday 10:00 AM</div>
-                  <div className="text-[10px] text-slate-400">Week kickoff</div>
-                </button>
-              </div>
+              {/* Outbound Dispatch Time Selector */}
+              <div className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    ⏰ Outbound Sending Time of Day
+                  </label>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    Asia/Kolkata (IST)
+                  </span>
+                </div>
 
-              {/* Custom Datetime Input */}
-              <div className="pt-1">
-                <Input
-                  type="datetime-local"
-                  value={scheduledDateTime}
-                  min={new Date().toISOString().slice(0, 16)}
-                  onChange={(e) => setScheduledDateTime(e.target.value)}
-                  className="w-full font-mono text-sm bg-white"
-                  required
-                />
+                {/* Quick Time Presets */}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {TIME_PRESETS.map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => setDispatchTime(preset.value)}
+                      className={`rounded-lg border px-2.5 py-1.5 text-center text-xs transition-all ${
+                        dispatchTime === preset.value
+                          ? "border-blue-600 bg-blue-50 font-semibold text-blue-900 shadow-2xs ring-1 ring-blue-600"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom Time Input */}
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-xs text-slate-500 font-medium">Or set exact time:</span>
+                  <input
+                    type="time"
+                    value={dispatchTime}
+                    onChange={(e) => setDispatchTime(e.target.value)}
+                    className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 font-mono text-xs font-semibold text-slate-800 shadow-xs focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                    required
+                  />
+                </div>
               </div>
             </div>
           )}
 
-          {/* Section 2: Number of Outgoing Emails (Batch Limit) */}
-          <div>
+          {/* Section: Number of Outgoing Emails (Batch Limit) */}
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
                 Number of Outgoing Emails
               </label>
               {enrolledCount > 0 && (
                 <span className="text-xs text-slate-500">
-                  {enrolledCount} total active leads
+                  {enrolledCount} total active enrolled leads
                 </span>
               )}
             </div>
 
             {/* Quick Limit Presets */}
-            <div className="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
               {PRESET_LIMITS.map((preset) => (
                 <button
                   key={preset}
                   type="button"
                   onClick={() => handlePresetLimitClick(preset)}
                   className={`rounded-xl border px-3 py-2 text-xs font-medium transition-all ${
-                    limit === preset && customInput === String(preset)
+                    limit === preset && customLimitInput === String(preset)
                       ? "border-emerald-600 bg-emerald-50 text-emerald-800 shadow-xs ring-1 ring-emerald-600 font-semibold"
                       : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
                   }`}
@@ -398,7 +672,7 @@ export function TriggerOutreachModal({
                   type="button"
                   onClick={() => handlePresetLimitClick(enrolledCount)}
                   className={`rounded-xl border px-3 py-2 text-xs font-medium transition-all ${
-                    limit === enrolledCount && customInput === String(enrolledCount)
+                    limit === enrolledCount && customLimitInput === String(enrolledCount)
                       ? "border-emerald-600 bg-emerald-50 text-emerald-800 shadow-xs ring-1 ring-emerald-600 font-semibold"
                       : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
                   }`}
@@ -410,155 +684,122 @@ export function TriggerOutreachModal({
             </div>
 
             {/* Custom Limit Input */}
-            <div className="mt-2.5">
-              <div className="relative">
-                <Input
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={customInput}
-                  onChange={(e) => handleCustomLimitChange(e.target.value)}
-                  placeholder="Custom email batch size"
-                  className="font-mono text-sm font-semibold"
-                  required
-                />
-                <span className="pointer-events-none absolute right-3 top-2.5 text-xs text-slate-400">
-                  emails
-                </span>
-              </div>
+            <div className="relative">
+              <Input
+                type="number"
+                min={1}
+                max={1000}
+                value={customLimitInput}
+                onChange={(e) => handleCustomLimitChange(e.target.value)}
+                placeholder="Custom email batch size"
+                className="font-mono text-sm font-semibold"
+                required
+              />
+              <span className="pointer-events-none absolute right-3 top-2.5 text-xs text-slate-400">
+                emails
+              </span>
             </div>
           </div>
 
-          {/* Section 3: Delay Between Every Outgoing Email (Up to 30 Days / 1 Month) */}
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Delay Between Every Outgoing Email
+          {/* Immediate Mode Options */}
+          {mode === "immediate" && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 space-y-2 text-xs">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-700 block">
+                Intra-Batch Spacing Delay
               </label>
-              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-800">
-                ⏱️ {formatPace(delayValue, delayUnit)}
-              </span>
-            </div>
-
-            {/* Quick Delay Presets */}
-            <div className="mt-2 grid grid-cols-5 gap-1.5 sm:gap-2">
-              {DELAY_PRESETS.map((preset) => {
-                const isSelected =
-                  delayValue === preset.value && delayUnit === preset.unit;
-                return (
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "0s Instant", value: 0 },
+                  { label: "15s Spacing", value: 15 },
+                  { label: "30s Warmup", value: 30 },
+                ].map((item) => (
                   <button
-                    key={preset.label}
+                    key={item.value}
                     type="button"
-                    onClick={() => handlePresetDelayClick(preset)}
-                    className={`rounded-xl border px-2 py-2 text-center text-xs font-medium transition-all ${
-                      isSelected
-                        ? "border-blue-600 bg-blue-50 text-blue-900 shadow-xs ring-1 ring-blue-600 font-semibold"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                    onClick={() => setImmediateDelay(item.value)}
+                    className={`rounded-lg border p-2 text-xs transition-all ${
+                      immediateDelay === item.value
+                        ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-800 ring-1 ring-emerald-600"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                     }`}
                   >
-                    {preset.label}
+                    {item.label}
                   </button>
-                );
-              })}
-            </div>
-
-            {/* Custom Delay with Unit Selector (Seconds, Minutes, Hours, Days up to 30) */}
-            <div className="mt-2.5 flex items-center gap-2">
-              <div className="relative flex-1">
-                <Input
-                  type="number"
-                  min={0}
-                  max={
-                    delayUnit === "days"
-                      ? 30
-                      : delayUnit === "hours"
-                      ? 720
-                      : delayUnit === "minutes"
-                      ? 43200
-                      : 2592000
-                  }
-                  value={customDelayInput}
-                  onChange={(e) => handleCustomDelayValChange(e.target.value)}
-                  placeholder="Custom delay value"
-                  className="font-mono text-sm font-semibold"
-                />
+                ))}
               </div>
-              <select
-                value={delayUnit}
-                onChange={(e) => {
-                  const newUnit = e.target.value as DelayUnit;
-                  setDelayUnit(newUnit);
-                }}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-xs focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-              >
-                <option value="seconds">Seconds</option>
-                <option value="minutes">Minutes</option>
-                <option value="hours">Hours</option>
-                <option value="days">Days (up to 1 mo)</option>
-              </select>
+              <p className="text-[11px] text-slate-500">
+                Spacing between emails avoids triggering rate limits with email providers.
+              </p>
             </div>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Staggered delays prevent email delivery throttling, warm up sending reputation, and keep replies natural.
-            </p>
-          </div>
+          )}
 
-          {/* Section 4: Live Interactive Schedule Projection */}
-          <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-50 p-4 space-y-2.5 text-xs shadow-xs">
-            <div className="flex items-center justify-between font-semibold text-slate-800 border-b border-slate-100 pb-2">
-              <span className="flex items-center gap-1.5 text-slate-900">
-                <span>🗓️</span>
-                <span>Schedule &amp; Delivery Projection</span>
-              </span>
-              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-600/20">
-                {limit} recipient{limit > 1 ? "s" : ""}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  {mode === "immediate" ? "Dispatches At" : "Starts At"}
+          {/* Interactive Live Schedule Projection Card */}
+          {mode === "scheduled" && calendarProjection && (
+            <div className="rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50/50 via-white to-blue-50/30 p-4 space-y-3 text-xs shadow-xs">
+              <div className="flex items-center justify-between font-semibold text-slate-800 border-b border-blue-100 pb-2">
+                <span className="flex items-center gap-1.5 text-slate-900 font-bold">
+                  <span>🗓️</span>
+                  <span>Calendar Delivery Projection</span>
                 </span>
-                <div className="font-semibold text-slate-800">
-                  {scheduleProjection.startDate.toLocaleString()}
+                <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800">
+                  {limit} total recipient{limit > 1 ? "s" : ""}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Selected Dates
+                  </span>
+                  <div className="font-semibold text-slate-800">
+                    {calendarProjection.daysCount} calendar day{calendarProjection.daysCount > 1 ? "s" : ""}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Daily Pacing
+                  </span>
+                  <div className="font-semibold text-blue-700">
+                    ~{calendarProjection.leadsPerDay} emails per selected day
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Starts On
+                  </span>
+                  <div className="font-semibold text-slate-800">
+                    {calendarProjection.firstDate.toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}{" "}
+                    at {dispatchTime}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Final Dispatch
+                  </span>
+                  <div className="font-semibold text-slate-800">
+                    {calendarProjection.lastDate.toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}{" "}
+                    at {dispatchTime}
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Estimated End
-                </span>
-                <div className="font-semibold text-slate-800">
-                  {totalDelaySeconds > 0
-                    ? scheduleProjection.endDate.toLocaleString()
-                    : "Immediate"}
-                </div>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Pacing
-                </span>
-                <div className="font-medium text-blue-700">
-                  {formatPace(delayValue, delayUnit)}
-                </div>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Total Duration Span
-                </span>
-                <div className="font-semibold text-emerald-700">
-                  {scheduleProjection.totalSpanDuration}
-                </div>
+              <div className="rounded-lg bg-white/80 p-2 text-[11px] text-slate-600 border border-blue-100/60 flex items-center justify-between">
+                <span>Total campaign window span: <strong className="text-slate-800">{calendarProjection.spanDays} days</strong></span>
+                <span className="text-emerald-700 font-semibold">🛡️ Halts on prospect reply</span>
               </div>
             </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
-              <span>Mailbox: <strong className="text-slate-700">{outboundSender?.fromEmail || "sales@vrindaacorp.com"}</strong></span>
-              <span className="text-emerald-700 font-medium">🛡️ Halts on prospect reply</span>
-            </div>
-          </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 pt-4">
@@ -574,7 +815,7 @@ export function TriggerOutreachModal({
             <Button
               type="submit"
               variant="primary"
-              disabled={isPending || limit < 1}
+              disabled={isPending || limit < 1 || (mode === "scheduled" && selectedDateKeys.length === 0)}
               className={`text-xs px-4 text-white font-semibold ${
                 mode === "immediate"
                   ? "bg-emerald-600 hover:bg-emerald-700"
@@ -587,7 +828,7 @@ export function TriggerOutreachModal({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  {mode === "immediate" ? "Dispatching Outreach…" : "Saving Schedule…"}
+                  {mode === "immediate" ? "Dispatching Outreach…" : "Scheduling Calendar Outreach…"}
                 </span>
               ) : mode === "immediate" ? (
                 <span className="flex items-center gap-1.5">
@@ -601,7 +842,7 @@ export function TriggerOutreachModal({
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                     <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd" />
                   </svg>
-                  Schedule {limit} Emails Starting {scheduleProjection.startDate.toLocaleDateString()}
+                  Schedule {limit} Emails across {selectedDateKeys.length} Date{selectedDateKeys.length > 1 ? "s" : ""}
                 </span>
               )}
             </Button>
