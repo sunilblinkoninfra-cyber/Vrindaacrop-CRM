@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSessionUser, isOwnerOrAdmin } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { sendWhatsAppTextMessage } from "@/lib/whatsapp";
 
-export const dynamic = "force-dynamic";
+const INSTANCE = env.whatsapp.evolutionInstanceName || "vrindaacorp-crm";
+const EVO_URL = env.whatsapp.evolutionApiUrl || "http://127.0.0.1:8080";
+const EVO_KEY = env.whatsapp.evolutionApiKey || "vrindaacorp-evolution-key";
 
-const EVO_URL = env.whatsapp.evolutionApiUrl;
-const EVO_KEY = env.whatsapp.evolutionApiKey;
-const INSTANCE = env.whatsapp.evolutionInstanceName;
-
-/**
- * Helper to call Evolution API
- */
 async function evoFetch(endpoint: string, options: RequestInit = {}) {
-  const url = `${EVO_URL.replace(/\/+$/, "")}${endpoint}`;
-  const res = await fetch(url, {
+  const url = `${EVO_URL}${endpoint}`;
+  return fetch(url, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -24,56 +19,74 @@ async function evoFetch(endpoint: string, options: RequestInit = {}) {
     },
     cache: "no-store",
   });
-  return res;
 }
 
 /**
- * GET: Fetches current connection state, live QR code, and user's phone number
+ * GET:
+ * - If ?poll=true: ONLY checks connectionState (does NOT touch or invalidate the QR code!)
+ * - Otherwise: returns current state and generates/retrieves QR code if not open.
  */
 export async function GET(req: NextRequest) {
   try {
     const user = await getSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!user || !isOwnerOrAdmin(user.role)) {
+      return NextResponse.json({ error: "Forbidden: Owner or Admin access required." }, { status: 403 });
     }
 
     const dbUser = await prisma.user.findUnique({
       where: { id: user.id },
-      select: { whatsappNumber: true, role: true, name: true },
+      select: { email: true, whatsappNumber: true, role: true, name: true },
     });
 
-    let state = "close";
-    let base64Qr = null;
-    let pairingCode = null;
+    const isPoll = req.nextUrl.searchParams.get("poll") === "true";
 
+    let state = "close";
+
+    // 1. Check live connection state (Lightweight & Safe)
     try {
       const stateRes = await evoFetch(`/instance/connectionState/${INSTANCE}`);
       if (stateRes.ok) {
         const stateData = await stateRes.json();
         state = stateData?.instance?.state || "close";
       }
+    } catch (err: any) {
+      console.warn("[Evolution API connectionState check failed]:", err.message);
+      state = "offline";
+    }
 
-      // If not yet connected/open, fetch fresh QR code and pairing data
-      if (state !== "open") {
+    // If this is just a status poll, return immediately without touching the QR code!
+    if (isPoll) {
+      return NextResponse.json({
+        ok: true,
+        state,
+        phone: dbUser?.whatsappNumber || "",
+        email: dbUser?.email || user.email,
+        role: dbUser?.role || user.role,
+        gateway: env.whatsapp.gateway,
+      });
+    }
+
+    // 2. Initial load or explicit QR fetch: fetch QR code only if instance is not already open
+    let base64Qr: string | null = null;
+    if (state !== "open") {
+      try {
         const connectRes = await evoFetch(`/instance/connect/${INSTANCE}`);
         if (connectRes.ok) {
           const connectData = await connectRes.json();
           base64Qr = connectData?.base64 || null;
-          pairingCode = connectData?.pairingCode || null;
         }
+      } catch (err: any) {
+        console.warn("[Evolution API connect fetch failed]:", err.message);
       }
-    } catch (err: any) {
-      console.warn("[Evolution API unreachable or starting up]:", err.message);
-      state = "offline";
     }
 
     return NextResponse.json({
       ok: true,
       state,
       phone: dbUser?.whatsappNumber || "",
-      role: dbUser?.role || "AGENT",
+      email: dbUser?.email || user.email,
+      role: dbUser?.role || user.role,
       base64Qr,
-      pairingCode,
       gateway: env.whatsapp.gateway,
     });
   } catch (err: any) {
@@ -82,7 +95,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST: Handles pairing code request, QR refresh, test message, and number update
+ * POST: Handles QR refresh, test message, phone save, and disconnect
  */
 export async function POST(req: NextRequest) {
   try {
@@ -92,67 +105,43 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const action = body.action || "request_pairing_code";
+    const action = body.action || "refresh_qr";
+
+    const dbUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { id: true, email: true, whatsappNumber: true, role: true, name: true },
+    });
 
     if (action === "save_phone") {
       const phone = String(body.phone || "").trim();
+      const cleanPhone = phone.replace(/[^\d+]/g, "");
       await prisma.user.update({
         where: { id: user.id },
-        data: { whatsappNumber: phone },
+        data: { whatsappNumber: cleanPhone.startsWith("+") ? cleanPhone : `+${cleanPhone}` },
       });
-      return NextResponse.json({ ok: true, phone, message: "Phone number updated successfully." });
-    }
-
-    if (action === "request_pairing_code") {
-      const phone = String(body.phone || "").trim();
-      const cleanPhone = phone.replace(/[^\d]/g, "");
-
-      if (!cleanPhone || cleanPhone.length < 10) {
-        return NextResponse.json({ error: "Please enter a valid phone number with country code (e.g. +91 8287868122)." }, { status: 400 });
-      }
-
-      // Update user in DB
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { whatsappNumber: `+${cleanPhone}` },
-      });
-
-      // Request pairing code from Evolution API
-      const res = await evoFetch(`/instance/connect/${INSTANCE}?number=${cleanPhone}`);
-      const data = await res.json();
-
-      return NextResponse.json({
-        ok: true,
-        pairingCode: data.pairingCode || data.code || null,
-        base64Qr: data.base64 || null,
-        phone: `+${cleanPhone}`,
-      });
+      return NextResponse.json({ ok: true, phone: cleanPhone, message: "Phone number updated successfully." });
     }
 
     if (action === "refresh_qr") {
+      // Cleanly fetch fresh QR code from Evolution API
       const res = await evoFetch(`/instance/connect/${INSTANCE}`);
       const data = await res.json();
+
       return NextResponse.json({
         ok: true,
         base64Qr: data.base64 || null,
-        pairingCode: data.pairingCode || null,
       });
     }
 
     if (action === "send_test") {
-      const dbUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { whatsappNumber: true, name: true },
-      });
-
-      const targetPhone = dbUser?.whatsappNumber;
+      const targetPhone = body.phone || dbUser?.whatsappNumber || "+918287868122";
       if (!targetPhone) {
-        return NextResponse.json({ error: "No WhatsApp phone number configured for your account." }, { status: 400 });
+        return NextResponse.json({ error: "No recipient phone number provided or configured." }, { status: 400 });
       }
 
-      const testMsg = `🎉 *VrindaaCorp AI Sales Agent Connected!*
+      const testMsg = `🤖 *VrindaaCorp AI Agent Status Check*
 
-Hello ${dbUser.name || "Business Owner"}! Your WhatsApp is now linked to VrindaaCorp CRM.
+Hello ${dbUser?.name || "Admin"}! Your WhatsApp is now linked to VrindaaCorp CRM.
 
 *What I will do:*
 1. ☀️ *09:00 AM Morning Game Plan*: Daily outreach targets, sector focus, pacing cap, and domain deliverability status.
@@ -175,7 +164,7 @@ Hello ${dbUser.name || "Business Owner"}! Your WhatsApp is now linked to Vrindaa
       });
     }
 
-    if (action === "disconnect") {
+    if (action === "disconnect" || action === "logout") {
       await evoFetch(`/instance/logout/${INSTANCE}`, { method: "DELETE" });
       return NextResponse.json({ ok: true, message: "WhatsApp device unlinked successfully." });
     }
