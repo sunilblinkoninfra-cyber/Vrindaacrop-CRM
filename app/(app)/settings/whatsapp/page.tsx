@@ -484,22 +484,35 @@ export default function WhatsAppSettingsPage() {
             </div>
           </div>
 
-          {/* Interactive Chat Commands */}
+          {/* Conversational AI Intelligence & Commands */}
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Interactive Chat Commands</h3>
-            <p className="mt-1 text-xs text-slate-400">Send these anytime from your paired WhatsApp chat:</p>
-            <div className="mt-3 space-y-2">
-              <div className="rounded-lg border border-slate-100 bg-slate-50 p-2.5">
-                <div className="font-mono text-xs font-semibold text-emerald-800">STATUS</div>
-                <div className="text-[11px] text-slate-500">Real-time outreach &amp; send volume metrics</div>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Conversational AI Co-Pilot</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              The AI agent does <strong>not</strong> just rely on rigid commands. It understands natural language, contextualizes your intent, confirms what it understood, and then proceeds.
+            </p>
+
+            <div className="mt-3 space-y-2.5">
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-2.5">
+                <div className="text-xs font-semibold text-emerald-900">💬 Natural Language Guidance</div>
+                <div className="text-[11px] text-slate-600 mt-0.5">
+                  &ldquo;Offer a 10% discount on security and schedule call for Friday&rdquo;<br />
+                  &ldquo;Hold off on manufacturing outreach today&rdquo;<br />
+                  &ldquo;Did anyone from TechNova reply?&rdquo;
+                </div>
               </div>
+
               <div className="rounded-lg border border-slate-100 bg-slate-50 p-2.5">
-                <div className="font-mono text-xs font-semibold text-emerald-800">WHO OPENED TODAY</div>
-                <div className="text-[11px] text-slate-500">Top high-intent repeat openers for manual follow-up</div>
+                <div className="text-xs font-semibold text-slate-800">🔁 Understand ➔ Confirm ➔ Proceed</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  For every message, the AI confirms what it understood, generates the proposal or executes the query, and requests confirmation before dispatching.
+                </div>
               </div>
+
               <div className="rounded-lg border border-slate-100 bg-slate-50 p-2.5">
-                <div className="font-mono text-xs font-semibold text-emerald-800">YES / SEND</div>
-                <div className="text-[11px] text-slate-500">Approves and sends proposed email response</div>
+                <div className="text-xs font-semibold text-slate-800">⚡ 1-Word Quick Confirmations</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  Reply <code className="font-mono text-emerald-700 font-bold">CONFIRM</code> or <code className="font-mono text-emerald-700 font-bold">YES</code> to execute any proposed action immediately.
+                </div>
               </div>
             </div>
           </div>
