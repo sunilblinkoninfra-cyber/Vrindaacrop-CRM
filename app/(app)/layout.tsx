@@ -17,6 +17,7 @@ import {
   IconReports,
   IconSources,
   IconUsers,
+  IconWhatsApp,
 } from "@/components/icons";
 
 // `ownerOnly` items are hidden from AGENT users (and blocked in middleware).
@@ -28,6 +29,7 @@ const nav = [
   { href: "/campaigns", label: "Campaigns", icon: <IconCampaigns />, ownerOnly: true },
   { href: "/templates", label: "Templates", icon: <IconTemplates />, ownerOnly: true },
   { href: "/reports", label: "Reports", icon: <IconReports /> },
+  { href: "/settings/whatsapp", label: "WhatsApp Agent", icon: <IconWhatsApp />, ownerOnly: true },
   { href: "/settings/sources", label: "Lead Sources", icon: <IconSources />, ownerOnly: true },
   { href: "/settings/users", label: "Users", icon: <IconUsers />, ownerOnly: true },
 ];
