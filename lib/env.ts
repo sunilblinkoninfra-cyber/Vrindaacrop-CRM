@@ -49,9 +49,9 @@ export const env = {
     // "anthropic" (hosted) or "local" (Ollama / vLLM / LM Studio)
     provider: (process.env.AI_PROVIDER ?? "local") as "anthropic" | "local",
     apiKey: process.env.ANTHROPIC_API_KEY ?? "",
-    model: process.env.AI_MODEL ?? "llama3.1:8b",
+    model: process.env.AI_MODEL ?? "llama3.2:3b",
     localBaseUrl: process.env.LOCAL_AI_BASE_URL ?? "http://127.0.0.1:11434", // Ollama base URL
-    localModel: process.env.LOCAL_AI_MODEL ?? process.env.AI_MODEL ?? "llama3.1:8b",
+    localModel: process.env.LOCAL_AI_MODEL ?? process.env.AI_MODEL ?? "llama3.2:3b",
   },
 
   websearch: {

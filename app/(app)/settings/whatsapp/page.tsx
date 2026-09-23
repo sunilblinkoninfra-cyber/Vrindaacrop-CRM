@@ -26,6 +26,76 @@ export default function WhatsAppSettingsPage() {
 
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Strategic Memory State
+  const [directives, setDirectives] = useState<{
+    id: string;
+    category: string;
+    content: string;
+    source: string;
+    updatedAt: string;
+  }[]>([]);
+  const [newCategory, setNewCategory] = useState("standing_rule");
+  const [newContent, setNewContent] = useState("");
+  const [savingDirective, setSavingDirective] = useState(false);
+
+  const loadMemory = useCallback(async () => {
+    try {
+      const res = await fetch("/api/whatsapp/memory");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.memory?.directives) {
+          setDirectives(json.memory.directives);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load strategic memory:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMemory();
+  }, [loadMemory]);
+
+  const handleAddDirective = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newContent.trim()) return;
+    try {
+      setSavingDirective(true);
+      const res = await fetch("/api/whatsapp/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save", category: newCategory, content: newContent }),
+      });
+      const json = await res.json();
+      if (json.ok && json.memory?.directives) {
+        setDirectives(json.memory.directives);
+        setNewContent("");
+        setFeedback({ text: "Strategic directive added! The AI agent will strictly adhere to this rule in all drafts & outreach." });
+      }
+    } catch (err: any) {
+      setFeedback({ text: err.message || "Failed to save directive", error: true });
+    } finally {
+      setSavingDirective(false);
+    }
+  };
+
+  const handleDeleteDirective = async (id: string) => {
+    try {
+      const res = await fetch("/api/whatsapp/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id }),
+      });
+      const json = await res.json();
+      if (json.ok && json.memory?.directives) {
+        setDirectives(json.memory.directives);
+        setFeedback({ text: "Directive removed." });
+      }
+    } catch (err: any) {
+      setFeedback({ text: err.message || "Failed to delete directive", error: true });
+    }
+  };
+
   // Fetch full state including QR code
   const loadFullStatus = useCallback(async () => {
     try {
@@ -516,6 +586,98 @@ export default function WhatsAppSettingsPage() {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Owner Strategic Playbook & Standing Directives */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Owner's Strategic Playbook &amp; Standing Directives</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              The AI Agent references these directives on every turn to ensure all proposals, email replies, and actions align purely with your vision and business rules.
+            </p>
+          </div>
+          <span className="rounded-full bg-indigo-50 border border-indigo-200 px-3 py-1 text-xs font-semibold text-indigo-700">
+            {directives.length} Active Directives
+          </span>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Directives List */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {directives.map((dir) => {
+              const catBadge = {
+                pricing_policy: "bg-emerald-50 text-emerald-800 border-emerald-200",
+                sector_preference: "bg-blue-50 text-blue-800 border-blue-200",
+                tone_and_style: "bg-purple-50 text-purple-800 border-purple-200",
+                standing_rule: "bg-amber-50 text-amber-800 border-amber-200",
+                client_instruction: "bg-indigo-50 text-indigo-800 border-indigo-200",
+              }[dir.category] || "bg-slate-50 text-slate-800 border-slate-200";
+
+              const catLabel = dir.category.replace(/_/g, " ").toUpperCase();
+
+              return (
+                <div key={dir.id} className="flex items-start justify-between gap-3 p-3.5 rounded-lg border border-slate-100 bg-slate-50/60 hover:bg-slate-50 transition-colors">
+                  <div className="space-y-1.5 flex-1">
+                    <span className={`inline-block px-2 py-0.5 text-[10px] font-bold tracking-wider rounded border ${catBadge}`}>
+                      {catLabel}
+                    </span>
+                    <p className="text-xs text-slate-800 leading-relaxed font-medium">
+                      {dir.content}
+                    </p>
+                    <div className="text-[10px] text-slate-400">
+                      Source: {dir.source === "owner_explicit" ? "Direct Owner Rule" : "Learned from Feedback"}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteDirective(dir.id)}
+                    title="Remove Directive"
+                    className="text-slate-400 hover:text-red-600 transition-colors p-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Add Directive Form */}
+          <form onSubmit={handleAddDirective} className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">Add New Strategic Directive / Business Rule</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <select
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-xs focus:border-emerald-500 focus:outline-hidden"
+              >
+                <option value="standing_rule">Standing Rule / General</option>
+                <option value="pricing_policy">Pricing &amp; Discount Policy</option>
+                <option value="sector_preference">Sector / Industry Rule</option>
+                <option value="tone_and_style">Tone &amp; Messaging Style</option>
+                <option value="client_instruction">Client / Account Instruction</option>
+              </select>
+
+              <input
+                type="text"
+                value={newContent}
+                onChange={(e) => setNewContent(e.target.value)}
+                placeholder="e.g. For healthcare companies, always emphasize NABH compliance and 24/7 supervisor audit"
+                className="sm:col-span-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-emerald-500 focus:outline-hidden"
+              />
+
+              <button
+                type="submit"
+                disabled={savingDirective}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {savingDirective ? "Adding..." : "+ Add Directive"}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Tip: You can also teach the agent via WhatsApp simply by texting directives like <em>&ldquo;Remember that our minimum contract size is 10 guards&rdquo;</em>.
+            </p>
+          </form>
         </div>
       </div>
     </div>
