@@ -28,8 +28,8 @@ export async function runOllamaAgent(args: {
   const startTime = Date.now();
   const { userMessage, userPhone, userRole, userName } = args;
   const trimmedUserMessage = userMessage.trim();
-
-  const base = (env.ai.localBaseUrl || "http://127.0.0.1:11434").replace(/\/$/, "");
+  const rawBase = env.ai.localBaseUrl || "http://127.0.0.1:11434";
+  const base = rawBase.replace(/\/v1\/?$/, "").replace(/\/$/, "");
   const model = env.ai.localModel || "llama3.2:3b";
 
   // 1. FAST-PATH: Direct 1-word confirmation check (< 100ms response time!)
