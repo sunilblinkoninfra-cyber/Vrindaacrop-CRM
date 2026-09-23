@@ -46,12 +46,12 @@ export const env = {
   },
 
   ai: {
-    // "anthropic" (hosted) or "local" (OpenAI-compatible endpoint, e.g. Ollama/vLLM/LM Studio)
-    provider: (process.env.AI_PROVIDER ?? "anthropic") as "anthropic" | "local",
+    // "anthropic" (hosted) or "local" (Ollama / vLLM / LM Studio)
+    provider: (process.env.AI_PROVIDER ?? "local") as "anthropic" | "local",
     apiKey: process.env.ANTHROPIC_API_KEY ?? "",
-    model: process.env.AI_MODEL ?? "claude-opus-5",
-    localBaseUrl: process.env.LOCAL_AI_BASE_URL ?? "", // e.g. http://localhost:11434/v1
-    localModel: process.env.LOCAL_AI_MODEL ?? "",
+    model: process.env.AI_MODEL ?? "llama3.1:8b",
+    localBaseUrl: process.env.LOCAL_AI_BASE_URL ?? "http://127.0.0.1:11434", // Ollama base URL
+    localModel: process.env.LOCAL_AI_MODEL ?? process.env.AI_MODEL ?? "llama3.1:8b",
   },
 
   websearch: {
@@ -74,7 +74,11 @@ export const env = {
   },
 
   whatsapp: {
-    enabled: process.env.WHATSAPP_ENABLED === "true",
+    enabled: process.env.WHATSAPP_ENABLED !== "false",
+    gateway: (process.env.WHATSAPP_GATEWAY ?? "evolution") as "evolution" | "meta",
+    evolutionApiUrl: process.env.EVOLUTION_API_URL ?? "http://127.0.0.1:8080",
+    evolutionApiKey: process.env.EVOLUTION_API_KEY ?? "vrindaacorp-evolution-key",
+    evolutionInstanceName: process.env.EVOLUTION_INSTANCE_NAME ?? "vrindaacorp-crm",
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
     accessToken: process.env.WHATSAPP_ACCESS_TOKEN ?? "",
     templateName: process.env.WHATSAPP_TEMPLATE_NAME ?? "hot_lead_alert",

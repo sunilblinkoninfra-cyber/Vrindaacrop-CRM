@@ -54,13 +54,29 @@ export async function updateSegment(campaignId: string, segment: Record<string, 
   revalidatePath(`/campaigns/${campaignId}`);
 }
 
-export async function addStep(campaignId: string, templateId: string, delayDays: number) {
+export async function addStep(
+  campaignId: string,
+  templateId?: string | null,
+  delayDays: number = 0
+) {
   await requireUser();
   const count = await prisma.sequenceStep.count({ where: { campaignId } });
+
+  let finalTemplateId = templateId?.trim();
+  if (!finalTemplateId || finalTemplateId === "auto") {
+    const { resolveOrCreateTemplateForCampaign } = await import("@/lib/templates-seed");
+    const tpl = await resolveOrCreateTemplateForCampaign(campaignId, count);
+    finalTemplateId = tpl.id;
+  }
+
   await prisma.sequenceStep.create({
-    data: { campaignId, templateId, order: count, delayDays: Math.max(0, delayDays) },
+    data: { campaignId, templateId: finalTemplateId, order: count, delayDays: Math.max(0, delayDays) },
   });
   revalidatePath(`/campaigns/${campaignId}`);
+}
+
+export async function autoAddSequenceStep(campaignId: string, delayDays: number = 0) {
+  return addStep(campaignId, "auto", delayDays);
 }
 
 export async function removeStep(stepId: string, campaignId: string) {
@@ -98,7 +114,12 @@ export async function setStatus(campaignId: string, status: CampaignStatus) {
   await requireUser();
   const steps = await prisma.sequenceStep.count({ where: { campaignId } });
   if (status === "ACTIVE" && steps === 0) {
-    throw new Error("Add at least one sequence step before activating.");
+    // Automatically generate Step 0 using industry match or Ollama AI so user is never blocked
+    const { resolveOrCreateTemplateForCampaign } = await import("@/lib/templates-seed");
+    const tpl = await resolveOrCreateTemplateForCampaign(campaignId, 0);
+    await prisma.sequenceStep.create({
+      data: { campaignId, templateId: tpl.id, order: 0, delayDays: 0 },
+    });
   }
   await prisma.campaign.update({ where: { id: campaignId }, data: { status } });
   revalidatePath(`/campaigns/${campaignId}`);
@@ -160,6 +181,16 @@ export async function scheduleCampaignOutreach(
 
   const { ensureDefaultIndustryTemplates } = await import("@/lib/templates-seed");
   await ensureDefaultIndustryTemplates();
+
+  // Ensure campaign has at least one sequence step; if not, automatically create Step 0
+  const stepCount = await prisma.sequenceStep.count({ where: { campaignId } });
+  if (stepCount === 0) {
+    const { resolveOrCreateTemplateForCampaign } = await import("@/lib/templates-seed");
+    const tpl = await resolveOrCreateTemplateForCampaign(campaignId, 0);
+    await prisma.sequenceStep.create({
+      data: { campaignId, templateId: tpl.id, order: 0, delayDays: 0 },
+    });
+  }
 
   const sendLimit = limit && limit > 0 ? Math.min(limit, 1000) : 50;
 
@@ -378,4 +409,104 @@ export async function triggerCampaignOutreach(
     delaySeconds,
     activateIfDraft: true,
   });
+}
+
+export type CampaignPreviewData = {
+  campaignId: string;
+  campaignName: string;
+  lead: {
+    firstName: string | null;
+    lastName: string | null;
+    company: string | null;
+    sector: string | null;
+    city: string | null;
+    email: string;
+  };
+  steps: Array<{
+    stepId: string;
+    order: number;
+    delayDays: number;
+    templateId: string;
+    templateName: string;
+    subjectA: string;
+    subjectB: string | null;
+    renderedSubjectA: string;
+    renderedSubjectB: string | null;
+    renderedHtml: string;
+    aiEnabled: boolean;
+  }>;
+};
+
+export async function getCampaignPreviewData(campaignId: string): Promise<CampaignPreviewData> {
+  await requireUser();
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: {
+      steps: {
+        orderBy: { order: "asc" },
+        include: { template: true },
+      },
+    },
+  });
+  if (!campaign) throw new Error("Campaign not found.");
+
+  let steps = campaign.steps;
+  if (steps.length === 0) {
+    const { resolveOrCreateTemplateForCampaign } = await import("@/lib/templates-seed");
+    const tpl = await resolveOrCreateTemplateForCampaign(campaignId, 0);
+    const createdStep = await prisma.sequenceStep.create({
+      data: { campaignId, templateId: tpl.id, order: 0, delayDays: 0 },
+      include: { template: true },
+    });
+    steps = [createdStep];
+  }
+
+  // Find first active enrolled lead for realistic token replacement
+  const firstEnrollment = await prisma.enrollment.findFirst({
+    where: { campaignId },
+    include: { lead: true },
+  });
+
+  const segment = (campaign.segment as Record<string, string> | null) ?? {};
+
+  const lead = firstEnrollment?.lead ?? {
+    id: "sample-preview",
+    firstName: "Rahul",
+    lastName: "Sharma",
+    company: "Apex Towers",
+    sector: segment.sector || "Corporate",
+    city: segment.geography || "Gurgaon",
+    geography: "NCR",
+    email: "rahul.sharma@apextowers.com",
+  };
+
+  const { applyTokens } = await import("@/lib/email/render");
+
+  const renderedSteps = steps.map((s) => ({
+    stepId: s.id,
+    order: s.order,
+    delayDays: s.delayDays,
+    templateId: s.template.id,
+    templateName: s.template.name,
+    subjectA: s.template.subjectA,
+    subjectB: s.template.subjectB,
+    renderedSubjectA: applyTokens(s.template.subjectA, lead),
+    renderedSubjectB: s.template.subjectB ? applyTokens(s.template.subjectB, lead) : null,
+    renderedHtml: applyTokens(s.template.html, lead),
+    aiEnabled: s.template.aiEnabled,
+  }));
+
+  return {
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    lead: {
+      firstName: lead.firstName,
+      lastName: lead.lastName,
+      company: lead.company,
+      sector: lead.sector,
+      city: lead.city,
+      email: lead.email,
+    },
+    steps: renderedSteps,
+  };
 }

@@ -55,9 +55,30 @@ export default function ImportPage() {
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch("/api/import/upload", { method: "POST", body: fd });
-      const data = await res.json();
+
+      let data: any = null;
+      const contentType = res.headers.get("content-type") || "";
+
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        if (res.status === 413) {
+          throw new Error(
+            "File is too large for the web server (HTTP 413 Payload Too Large). Nginx default limit is 1MB. Please ensure the VPS Nginx client_max_body_size is set to 50M or convert the file to a CSV."
+          );
+        }
+        if (res.status === 504 || res.status === 502) {
+          throw new Error(`Server gateway error (${res.status}). The server timed out processing this file. Please try converting to CSV or uploading a smaller batch.`);
+        }
+        if (res.status === 401 || res.status === 403) {
+          throw new Error("Your login session has expired or you do not have permission. Please refresh the page and sign in.");
+        }
+        throw new Error(`Server returned error (${res.status}): ${text.slice(0, 150)}`);
+      }
+
       setIsUploading(false);
-      if (!res.ok) return setError(data.error ?? "Upload failed");
+      if (!res.ok) return setError(data?.error ?? "Upload failed");
       setUpload(data);
       setMapping(data.mapping ?? {});
     } catch (err: any) {
@@ -85,12 +106,21 @@ export default function ImportPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ autoFixTypo, skipDisposable }),
       });
-      const data = await res.json();
+
+      let data: any = null;
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(`Processing server error (${res.status}): ${text.slice(0, 150)}`);
+      }
+
       setIsProcessing(false);
 
       if (!res.ok) {
         setProcessStatus("idle");
-        return setError(data.error ?? "Processing failed");
+        return setError(data?.error ?? "Processing failed");
       }
 
       setResult(data);

@@ -7,6 +7,11 @@ Custom application for **VrindaaCorp Services** covering the four components of 
 3. **CRM** — lead pipeline, tracking (sent/opened/clicked/replied/bounced), notes, tasks, owner assignment.
 4. **Owner Notification & Reply Loop** — reply detection → Email + WhatsApp alert → 48h escalation.
 
+---
+
+> 📖 **Looking for the Step-by-Step Operator Guide?**  
+> Read the [Complete User Manual](docs/COMPLETE_USER_MANUAL.md) — written in simple, plain language with full walkthroughs, diagrams, and FAQs for every single screen and feature in the CRM!
+
 ## Tech stack
 
 - **Next.js 14** (App Router, TypeScript) — UI, API routes, server actions
@@ -53,8 +58,8 @@ npm run db:seed
 (For subsequent schema changes during development, use `npx prisma migrate dev`.)
 
 Seed creates two logins (password `admin123`):
-- `admin@vrindaacorp.com` (ADMIN)
-- `owner@vrindaacorp.com` (OWNER, receives hot-lead alerts)
+- `admin@vrindaacorpservices.in` (ADMIN)
+- `owner@vrindaacorpservices.in` (OWNER, receives hot-lead alerts)
 
 **Change these passwords immediately in any real deployment.**
 

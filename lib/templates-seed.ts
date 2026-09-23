@@ -127,3 +127,73 @@ export async function resolveTemplateForLead(
 
   return matched ?? defaultTemplate;
 }
+
+/**
+ * Automatically resolves an industry-matching email template for a campaign,
+ * OR creates a brand new one using Ollama AI on the VPS if the industry is not provided.
+ */
+export async function resolveOrCreateTemplateForCampaign(
+  campaignId: string,
+  stepOrder: number = 0
+) {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    select: { id: true, name: true, description: true, segment: true },
+  });
+
+  await ensureDefaultIndustryTemplates();
+
+  const segment = (campaign?.segment as Record<string, string> | null) ?? {};
+  const sector = segment.sector?.trim();
+
+  // 1. If industry is provided, match or generate for that specific sector
+  if (sector && sector !== "" && sector !== "Any sector") {
+    const matched = await prisma.emailTemplate.findFirst({
+      where: {
+        OR: [
+          { name: { contains: `[${sector}]`, mode: "insensitive" } },
+          { name: { contains: sector, mode: "insensitive" } },
+        ],
+      },
+    });
+
+    if (matched) return matched;
+
+    // Check if one of the standard industry templates can be created
+    const seedMatch = INDUSTRY_DEFAULT_TEMPLATES.find((t) =>
+      t.name.toLowerCase().includes(sector.toLowerCase())
+    );
+    if (seedMatch) {
+      return prisma.emailTemplate.create({
+        data: {
+          name: seedMatch.name,
+          subjectA: seedMatch.subjectA,
+          subjectB: seedMatch.subjectB,
+          html: seedMatch.html,
+          aiEnabled: false,
+        },
+      });
+    }
+  }
+
+  // 2. If industry is NOT provided (or custom sector not seeded),
+  // automatically create a new one using Ollama AI deployed on the VPS
+  const { generateTemplateWithOllama } = await import("@/lib/ai/generate-template");
+  const generated = await generateTemplateWithOllama({
+    campaignName: campaign?.name,
+    campaignDescription: campaign?.description ?? undefined,
+    sector: sector || undefined,
+    stepOrder,
+  });
+
+  return prisma.emailTemplate.create({
+    data: {
+      name: generated.name,
+      subjectA: generated.subjectA,
+      subjectB: generated.subjectB,
+      html: generated.html,
+      aiEnabled: false,
+      aiBrief: `Auto-generated template for campaign "${campaign?.name || "Outreach"}"`,
+    },
+  });
+}

@@ -29,9 +29,37 @@ function parseCsv(buffer: Buffer): ParsedFile {
 
 function parseExcel(buffer: Buffer): ParsedFile {
   const wb = XLSX.read(buffer, { type: "buffer" });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!wb.SheetNames || wb.SheetNames.length === 0) {
+    return { columns: [], rows: [] };
+  }
+
+  // Find the sheet with the most rows (in case Sheet 1 is a title/instructions tab)
+  let bestSheetName = wb.SheetNames[0];
+  let maxRows = 0;
+  for (const name of wb.SheetNames) {
+    const s = wb.Sheets[name];
+    if (s && s["!ref"]) {
+      const range = XLSX.utils.decode_range(s["!ref"]);
+      const numRows = range.e.r - range.s.r + 1;
+      if (numRows > maxRows) {
+        maxRows = numRows;
+        bestSheetName = name;
+      }
+    }
+  }
+
+  const sheet = wb.Sheets[bestSheetName];
   const json = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: "", raw: false });
-  const columns = json.length ? Object.keys(json[0]).map((c) => c.trim()) : [];
+
+  // Collect unique column names across all rows so no columns are omitted
+  const colSet = new Set<string>();
+  for (const r of json) {
+    for (const k of Object.keys(r)) {
+      if (k && k.trim()) colSet.add(k.trim());
+    }
+  }
+  const columns = Array.from(colSet);
+
   const rows = json.map((r) => {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(r)) out[k.trim()] = v == null ? "" : String(v);

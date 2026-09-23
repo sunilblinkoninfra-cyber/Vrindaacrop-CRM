@@ -20,7 +20,6 @@ async function main() {
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
   const targets = [
     "admin@vrindaacorp.com",
-    "owner@vrindaacorp.com",
     "admin@vrindaacorpservices.in",
     "owner@vrindaacorpservices.in",
   ];

@@ -337,3 +337,113 @@ export async function getDashboardAnalytics(userScope: Scope = {}, filters: Dash
     campaigns,
   };
 }
+
+/**
+ * Aggregates all daily performance data for the 09:00 PM Day-End Briefing.
+ * Includes specific identification of repeat openers (>1 open count) for prioritized closing.
+ */
+export async function getDayEndReportMetrics(scope: Scope = {}) {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+
+  const [
+    sentToday,
+    opensToday,
+    bouncesToday,
+    funnel,
+    cumulativeLeadsOutreached,
+    pendingReplies,
+    rawRepeatOpeners,
+  ] = await Promise.all([
+    prisma.emailEvent.count({
+      where: {
+        type: EmailEventType.SENT,
+        createdAt: { gte: startOfDay },
+        ...(Object.keys(scope).length ? { lead: scope } : {}),
+      },
+    }),
+    prisma.emailEvent.count({
+      where: {
+        type: EmailEventType.OPENED,
+        createdAt: { gte: startOfDay },
+        ...(Object.keys(scope).length ? { lead: scope } : {}),
+      },
+    }),
+    prisma.emailEvent.count({
+      where: {
+        type: EmailEventType.BOUNCED,
+        createdAt: { gte: startOfDay },
+        ...(Object.keys(scope).length ? { lead: scope } : {}),
+      },
+    }),
+    emailFunnel(undefined, scope),
+    prisma.lead.count({
+      where: {
+        ...scope,
+        stage: { not: LeadStage.NEW },
+        emailEvents: { some: { type: EmailEventType.SENT } },
+      },
+    }),
+    prisma.proposedReplyDraft.count({
+      where: { status: "PENDING_APPROVAL" },
+    }),
+    prisma.emailEvent.groupBy({
+      by: ["leadId"],
+      where: {
+        type: EmailEventType.OPENED,
+        ...(Object.keys(scope).length ? { lead: scope } : {}),
+      },
+      _count: { _all: true },
+      having: {
+        leadId: {
+          _count: { gt: 1 },
+        },
+      },
+      orderBy: {
+        _count: { leadId: "desc" },
+      },
+      take: 10,
+    }),
+  ]);
+
+  // Fetch lead details for the top repeat openers
+  const repeatLeadIds = rawRepeatOpeners.map((r) => r.leadId);
+  const repeatLeads =
+    repeatLeadIds.length > 0
+      ? await prisma.lead.findMany({
+          where: { id: { in: repeatLeadIds } },
+          select: { id: true, firstName: true, lastName: true, company: true, email: true },
+        })
+      : [];
+
+  const repeatOpeners = rawRepeatOpeners
+    .map((item) => {
+      const lead = repeatLeads.find((l) => l.id === item.leadId);
+      if (!lead) return null;
+      const fullName = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Prospect";
+      return {
+        name: fullName,
+        company: lead.company,
+        openCount: item._count._all,
+        email: lead.email,
+      };
+    })
+    .filter(Boolean) as Array<{
+    name: string;
+    company: string | null;
+    openCount: number;
+    email: string;
+  }>;
+
+  return {
+    sentToday,
+    cumulativeLeadsOutreached: cumulativeLeadsOutreached || funnel.uniqueSent,
+    responseRatePercent: funnel.replyRate,
+    opensToday,
+    totalUniqueOpens: funnel.opened,
+    overallOpenRatePercent: funnel.openRate,
+    repeatOpeners,
+    bouncesToday,
+    pendingReplies,
+  };
+}

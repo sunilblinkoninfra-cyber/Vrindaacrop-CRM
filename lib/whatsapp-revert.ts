@@ -114,7 +114,7 @@ export async function handleIncomingWhatsAppMessage(args: {
   messageText: string;
 }): Promise<{
   ok: boolean;
-  action: "sent" | "revised" | "none";
+  action: "sent" | "revised" | "agent" | "none";
   draftId?: string;
   version?: number;
   message?: string;
@@ -123,7 +123,47 @@ export async function handleIncomingWhatsAppMessage(args: {
   const { fromPhone, messageText } = args;
   const cleanPhone = fromPhone.replace(/[^\d]/g, "");
 
-  // Find the active pending or revised draft for this agent phone (or most recent pending draft)
+  // 1. Authorization & Role Verification
+  const user = cleanPhone
+    ? await prisma.user.findFirst({
+        where: {
+          whatsappNumber: { contains: cleanPhone.slice(-10) },
+        },
+      })
+    : null;
+
+  const totalRegisteredUsers = await prisma.user.count({
+    where: { whatsappNumber: { not: null } },
+  });
+
+  if (totalRegisteredUsers > 0 && !user) {
+    const unauthMsg = `⚠️ *Unauthorized WhatsApp Sender*\nThe phone number *+${cleanPhone}* is not registered in VrindaaCorp CRM. Please have your system administrator add your WhatsApp number under Settings / Team to access the AI Co-Pilot.`;
+    await sendWhatsAppTextMessage(fromPhone, unauthMsg);
+    return {
+      ok: false,
+      action: "none",
+      error: `Phone +${cleanPhone} is not authorized.`,
+    };
+  }
+
+  const userRole = (user?.role as "OWNER" | "ADMIN" | "AGENT") || "OWNER";
+  const userName = user?.name || undefined;
+  const trimmedText = messageText.trim();
+
+  // 2. Handle Bi-Weekly Strategy Approval ("APPROVE STRATEGY")
+  if (/^approve\s+strategy/i.test(trimmedText)) {
+    if (userRole === "AGENT") {
+      await sendWhatsAppTextMessage(fromPhone, "⚠️ *Permission Denied*: Only the Business Owner or Admin can approve scaling strategies.");
+      return { ok: false, action: "none", error: "Permission denied" };
+    }
+    const { applyBiWeeklyStrategy, evaluateBiWeeklyStrategy } = await import("@/lib/ai/strategy-engine");
+    const evalResult = await evaluateBiWeeklyStrategy();
+    const res = await applyBiWeeklyStrategy(evalResult.proposedCap);
+    await sendWhatsAppTextMessage(fromPhone, res.message);
+    return { ok: true, action: "sent", message: res.message };
+  }
+
+  // 3. Find active pending or revised draft
   let draft = await prisma.proposedReplyDraft.findFirst({
     where: {
       status: { in: ["PENDING_APPROVAL", "REVISED"] },
@@ -133,8 +173,7 @@ export async function handleIncomingWhatsAppMessage(args: {
     include: { lead: true },
   });
 
-  // If no phone match, fallback to the latest active draft in the system
-  if (!draft) {
+  if (!draft && userRole !== "AGENT") {
     draft = await prisma.proposedReplyDraft.findFirst({
       where: { status: { in: ["PENDING_APPROVAL", "REVISED"] } },
       orderBy: { updatedAt: "desc" },
@@ -142,18 +181,9 @@ export async function handleIncomingWhatsAppMessage(args: {
     });
   }
 
-  if (!draft) {
-    return {
-      ok: false,
-      action: "none",
-      error: "No active reply draft found awaiting confirmation.",
-    };
-  }
-
-  const leadName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
-
-  // CASE 1: Agent confirmed -> Dispatch email to client
-  if (isApprovalMessage(messageText)) {
+  // 4. If an active draft exists AND the message is an approval keyword ("YES", "SEND", "PROCEED")
+  if (draft && isApprovalMessage(trimmedText)) {
+    const leadName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
     try {
       const emailResult = await sendEmail({
         to: draft.lead.email,
@@ -208,70 +238,91 @@ export async function handleIncomingWhatsAppMessage(args: {
     }
   }
 
-  // CASE 2: Agent suggested changes -> Inculcate changes into draft and re-share for confirmation
-  const revisionFeedback = messageText.trim();
-  const nextVersion = draft.version + 1;
+  // 5. If an active draft exists AND the text is NOT a general CRM inquiry -> Revise the draft
+  const isCrmQuery = /^(status|report|metrics|stats|summary|day\s*end|pause|stop|resume|start|who\s*opened|repeat|hot|leads?|search|add\s+lead)/i.test(trimmedText);
 
-  try {
-    const revised = await generateProposedReply({
-      lead: draft.lead,
-      inboundSubject: draft.inboundSubject,
-      inboundBody: draft.inboundBody,
-      currentDraft: {
-        subject: draft.draftSubject,
-        bodyHtml: draft.draftBody,
-      },
-      revisionFeedback,
-    });
+  if (draft && !isCrmQuery) {
+    const revisionFeedback = trimmedText;
+    const nextVersion = draft.version + 1;
+    const leadName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
 
-    // Update draft with revised content
-    await prisma.proposedReplyDraft.update({
-      where: { id: draft.id },
-      data: {
+    try {
+      const revised = await generateProposedReply({
+        lead: draft.lead,
+        inboundSubject: draft.inboundSubject,
+        inboundBody: draft.inboundBody,
+        currentDraft: {
+          subject: draft.draftSubject,
+          bodyHtml: draft.draftBody,
+        },
+        revisionFeedback,
+      });
+
+      // Update draft with revised content
+      await prisma.proposedReplyDraft.update({
+        where: { id: draft.id },
+        data: {
+          draftSubject: revised.subject,
+          draftBody: revised.bodyHtml,
+          version: nextVersion,
+          revisionNotes: revisionFeedback,
+          status: "REVISED",
+        },
+      });
+
+      // Log revision activity
+      await prisma.activity.create({
+        data: {
+          leadId: draft.lead.id,
+          type: "note",
+          message: `📝 Agent suggested changes via WhatsApp: "${revisionFeedback}". AI updated draft to v${nextVersion}.`,
+        },
+      });
+
+      // Disseminate revised draft to agent's WhatsApp
+      const revisedWhatsAppMsg = formatRevisedDraftNotification({
+        leadName,
         draftSubject: revised.subject,
-        draftBody: revised.bodyHtml,
+        draftBody: revised.bodyText,
         version: nextVersion,
-        revisionNotes: revisionFeedback,
-        status: "REVISED",
-      },
-    });
+        feedback: revisionFeedback,
+      });
 
-    // Log revision activity
-    await prisma.activity.create({
-      data: {
-        leadId: draft.lead.id,
-        type: "note",
-        message: `📝 Agent suggested changes via WhatsApp: "${revisionFeedback}". AI updated draft to v${nextVersion}.`,
-      },
-    });
+      await sendWhatsAppTextMessage(fromPhone, revisedWhatsAppMsg);
 
-    // Disseminate revised draft to agent's WhatsApp
-    const revisedWhatsAppMsg = formatRevisedDraftNotification({
-      leadName,
-      draftSubject: revised.subject,
-      draftBody: revised.bodyText,
-      version: nextVersion,
-      feedback: revisionFeedback,
-    });
-
-    await sendWhatsAppTextMessage(fromPhone, revisedWhatsAppMsg);
-
-    return {
-      ok: true,
-      action: "revised",
-      draftId: draft.id,
-      version: nextVersion,
-      message: `Revised draft (v${nextVersion}) created with feedback and shared to WhatsApp.`,
-    };
-  } catch (err: any) {
-    console.error("[Failed to revise draft]:", err);
-    return {
-      ok: false,
-      action: "none",
-      draftId: draft.id,
-      error: `Failed to revise draft: ${err.message}`,
-    };
+      return {
+        ok: true,
+        action: "revised",
+        draftId: draft.id,
+        version: nextVersion,
+        message: `Revised draft (v${nextVersion}) created with feedback and shared to WhatsApp.`,
+      };
+    } catch (err: any) {
+      console.error("[Failed to revise draft]:", err);
+      return {
+        ok: false,
+        action: "none",
+        draftId: draft.id,
+        error: `Failed to revise draft: ${err.message}`,
+      };
+    }
   }
+
+  // 6. Conversational Ollama Agent Execution (CRM co-pilot commands, metrics, reports, lead searches)
+  const { runOllamaAgent } = await import("@/lib/ai/ollama-agent");
+  const agentRes = await runOllamaAgent({
+    userMessage: trimmedText,
+    userPhone: fromPhone,
+    userRole,
+    userName,
+  });
+
+  await sendWhatsAppTextMessage(fromPhone, agentRes.text);
+  return {
+    ok: true,
+    action: "agent",
+    message: agentRes.text,
+  };
 }
 
 /**

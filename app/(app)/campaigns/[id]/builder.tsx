@@ -26,6 +26,10 @@ type Step = {
   delayDays: number;
   templateId: string;
   templateName: string;
+  subjectA?: string;
+  subjectB?: string | null;
+  html?: string;
+  aiEnabled?: boolean;
 };
 
 type TemplateOpt = { id: string; name: string };
@@ -38,6 +42,15 @@ type OutboundSenderInfo = {
   isConfigured: boolean;
 };
 
+type SampleLead = {
+  firstName: string | null;
+  lastName: string | null;
+  company: string | null;
+  sector: string | null;
+  city: string | null;
+  email: string;
+};
+
 export function CampaignBuilder({
   campaignId,
   campaignName,
@@ -47,6 +60,7 @@ export function CampaignBuilder({
   templates,
   enrolledCount,
   outboundSender,
+  sampleLead,
 }: {
   campaignId: string;
   campaignName: string;
@@ -56,11 +70,12 @@ export function CampaignBuilder({
   templates: TemplateOpt[];
   enrolledCount: number;
   outboundSender?: OutboundSenderInfo;
+  sampleLead?: SampleLead;
 }) {
   const router = useRouter();
   const [seg, setSeg] = useState<Record<string, string>>(segment);
   const [count, setCount] = useState<number | null>(null);
-  const [tpl, setTpl] = useState("");
+  const [tpl, setTpl] = useState("auto");
   const [delay, setDelay] = useState("3");
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
@@ -75,9 +90,37 @@ export function CampaignBuilder({
   const [editStepTemplateId, setEditStepTemplateId] = useState("");
   const [editStepDelay, setEditStepDelay] = useState("0");
 
+  // Step Preview Modal State
+  const [previewStep, setPreviewStep] = useState<Step | null>(null);
+  const [previewVariant, setPreviewVariant] = useState<"A" | "B">("A");
+
   // Trigger & Schedule Outreach Modal State
   const [isTriggerModalOpen, setIsTriggerModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"immediate" | "scheduled">("immediate");
+
+  function renderTokens(text?: string | null) {
+    if (!text) return "";
+    const l = sampleLead || {
+      firstName: "Rahul",
+      lastName: "Sharma",
+      company: "Apex Towers",
+      sector: seg.sector || "Corporate",
+      city: seg.geography || "Gurgaon",
+      email: "rahul.sharma@apextowers.com",
+    };
+    const tokens: Record<string, string> = {
+      firstName: l.firstName || "there",
+      lastName: l.lastName || "",
+      fullName: `${l.firstName || ""} ${l.lastName || ""}`.trim() || "there",
+      company: l.company || "your organization",
+      sector: l.sector || "your industry",
+      industry: l.sector || "your industry",
+      city: l.city || "your city",
+      geography: l.city || "your region",
+      industryHook: "integrated facility management, housekeeping, and corporate catering",
+    };
+    return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => tokens[key] ?? "");
+  }
 
   function run(fn: () => Promise<unknown>, successMsg?: string) {
     setError("");
@@ -298,20 +341,51 @@ export function CampaignBuilder({
       {/* Sequence Steps Card */}
       <Card className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-700">Sequence steps</h2>
-          <div className="flex items-center gap-1.5 text-xs text-brand">
-            <span className="h-2 w-2 rounded-full bg-brand" />
-            <span className="font-medium">Automatic Industry Matching Active</span>
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700">Sequence steps</h2>
+            <p className="text-xs text-slate-400">Automatic industry template matching and Ollama AI active</p>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full font-medium">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>AI Template Matching Active</span>
           </div>
         </div>
+
+        {steps.length === 0 && (
+          <div className="rounded-xl border border-dashed border-emerald-300 bg-gradient-to-r from-emerald-50/70 to-teal-50/50 p-4 text-center">
+            <div className="flex items-center justify-center gap-2 font-semibold text-emerald-900 text-sm">
+              <span>✨ Zero-Blocker Sequence Setup</span>
+            </div>
+            <p className="mt-1 text-xs text-emerald-700 max-w-md mx-auto">
+              No manual template selection needed. The system will automatically select the best matching industry template, or generate a brand new one using <strong>Ollama AI deployed on VPS</strong> if the industry is not provided.
+            </p>
+            <div className="mt-3 flex justify-center gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                disabled={pending}
+                onClick={() =>
+                  run(async () => {
+                    await addStep(campaignId, undefined, 0);
+                  }, "Step 1 automatically generated and added via Ollama AI / Industry match.")
+                }
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-1.5 font-semibold"
+              >
+                ⚡ Auto-Generate Step 1 with Ollama AI
+              </Button>
+            </div>
+          </div>
+        )}
+
         <ol className="space-y-2">
           {steps.map((s) => {
             const isEditingThis = editingStepId === s.id;
+            const isOllama = s.templateName.includes("[Ollama AI]");
 
             return (
               <li
                 key={s.id}
-                className="flex flex-col gap-2 rounded-lg bg-slate-50 p-3 text-sm"
+                className="flex flex-col gap-2 rounded-lg bg-slate-50 p-3 text-sm border border-slate-100"
               >
                 {isEditingThis ? (
                   <div className="space-y-3">
@@ -323,7 +397,7 @@ export function CampaignBuilder({
                           value={editStepTemplateId}
                           onChange={(e) => setEditStepTemplateId(e.target.value)}
                         >
-                          <option value="">Select template…</option>
+                          <option value="auto">✨ Auto-select by industry or generate with Ollama AI</option>
                           {templates.map((t) => (
                             <option key={t.id} value={t.id}>
                               {t.name}
@@ -347,7 +421,7 @@ export function CampaignBuilder({
                         <Button
                           type="button"
                           variant="primary"
-                          disabled={pending || !editStepTemplateId}
+                          disabled={pending}
                           onClick={() => handleSaveStep(s.id)}
                           className="h-10 px-3 text-xs"
                         >
@@ -367,13 +441,36 @@ export function CampaignBuilder({
                   </div>
                 ) : (
                   <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
-                    <div>
-                      <strong>Step {s.order + 1}</strong> — {s.templateName}{" "}
-                      <span className="text-slate-400">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-slate-800">Step {s.order + 1}</span>
+                      <span className="text-slate-400">·</span>
+                      <span className="text-slate-900 font-medium">{s.templateName}</span>
+                      {isOllama ? (
+                        <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200">
+                          🤖 Ollama AI
+                        </span>
+                      ) : (
+                        <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+                          ✓ Matched
+                        </span>
+                      )}
+                      <span className="text-xs text-slate-400">
                         ({s.order === 0 ? "sent immediately" : `+${s.delayDays} days after prev`})
                       </span>
                     </div>
                     <div className="flex items-center gap-1 self-end sm:self-center">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={pending}
+                        onClick={() => {
+                          setPreviewStep(s);
+                          setPreviewVariant("A");
+                        }}
+                        className="h-8 min-h-0 px-2.5 py-1 text-xs text-slate-700 hover:text-slate-900"
+                      >
+                        Preview
+                      </Button>
                       <Button
                         type="button"
                         variant="secondary"
@@ -398,15 +495,14 @@ export function CampaignBuilder({
               </li>
             );
           })}
-          {steps.length === 0 && <li className="text-sm text-slate-400">No steps yet. Add your first step below.</li>}
         </ol>
 
         {/* Add Step Form */}
         <div className="flex flex-col items-stretch gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:flex-wrap sm:items-end">
-          <div className="w-full sm:w-56">
+          <div className="flex-1 min-w-[240px]">
             <label className="mb-1 block text-xs text-slate-500">Add Next Step Template</label>
             <Select value={tpl} onChange={(e) => setTpl(e.target.value)}>
-              <option value="">Choose template…</option>
+              <option value="auto">✨ Auto-select by industry or generate with Ollama AI (Recommended)</option>
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
@@ -424,13 +520,25 @@ export function CampaignBuilder({
           </div>
           <Button
             className="w-full sm:w-auto"
-            disabled={pending || !tpl}
+            disabled={pending}
             onClick={() => run(async () => {
-              await addStep(campaignId, tpl, parseInt(delay, 10) || 0);
-              setTpl("");
+              await addStep(campaignId, tpl === "auto" ? undefined : tpl, parseInt(delay, 10) || 0);
+              setTpl("auto");
             }, "Step added to sequence.")}
           >
             Add step
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full sm:w-auto border-emerald-200 text-emerald-800 hover:bg-emerald-50"
+            disabled={pending}
+            onClick={() => run(async () => {
+              await addStep(campaignId, undefined, steps.length === 0 ? 0 : 3);
+            }, "Step automatically generated and added via Ollama AI / Industry match.")}
+            title="Automatically resolve industry template or create one using Ollama AI"
+          >
+            ⚡ Auto-Add with AI
           </Button>
         </div>
       </Card>
@@ -561,9 +669,125 @@ export function CampaignBuilder({
         enrolledCount={enrolledCount}
         outboundSender={outboundSender}
         initialMode={modalMode}
+        steps={steps}
+        sampleLead={sampleLead}
         onSuccess={(msg) => setSuccess(msg)}
         onError={(msg) => setError(msg)}
       />
+
+      {/* Individual Sequence Step Preview Dialog */}
+      {previewStep && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
+          <div
+            className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs transition-opacity"
+            onClick={() => setPreviewStep(null)}
+          />
+          <div className="relative z-10 w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-slate-900/10">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Step {previewStep.order + 1} Email Preview
+                </span>
+                <h3 className="text-base font-bold text-slate-900 mt-0.5">
+                  {previewStep.templateName}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewStep(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-3 py-4 text-xs">
+              {/* Variant switcher */}
+              {previewStep.subjectB && (
+                <div className="flex items-center gap-1 border-b border-slate-100 pb-2.5">
+                  <span className="text-slate-500 font-semibold mr-1">Subject Variant:</span>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewVariant("A")}
+                    className={`rounded px-2.5 py-1 text-xs font-bold ${
+                      previewVariant === "A"
+                        ? "bg-slate-900 text-white"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
+                  >
+                    Variant A
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewVariant("B")}
+                    className={`rounded px-2.5 py-1 text-xs font-bold ${
+                      previewVariant === "B"
+                        ? "bg-slate-900 text-white"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
+                  >
+                    Variant B
+                  </button>
+                </div>
+              )}
+
+              {/* Envelope headers */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1.5 text-slate-700">
+                <div className="flex items-center gap-2">
+                  <span className="w-16 text-slate-400 font-medium">From:</span>
+                  <span className="font-mono text-slate-900">
+                    {outboundSender?.fromEmail || "sales@vrindaacorp.com"} (VrindaaCorp Services)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-16 text-slate-400 font-medium">To:</span>
+                  <span className="text-slate-900 font-medium">
+                    {sampleLead?.firstName || "Rahul"} {sampleLead?.lastName || "Sharma"} &lt;
+                    {sampleLead?.email || "rahul.sharma@apextowers.com"}&gt; ({sampleLead?.company || "Apex Towers"})
+                  </span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="w-16 text-slate-400 font-medium">Subject:</span>
+                  <span className="font-semibold text-slate-900">
+                    {renderTokens(
+                      previewVariant === "A"
+                        ? previewStep.subjectA
+                        : previewStep.subjectB || previewStep.subjectA
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Rendered Body */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs font-sans text-slate-800 leading-relaxed max-h-64 overflow-y-auto">
+                <div
+                  className="prose prose-xs max-w-none [&>p]:mb-2 [&>ul]:list-disc [&>ul]:pl-4 [&>ul]:mb-2 [&>li]:mb-1 [&>a]:text-brand [&>a]:underline"
+                  dangerouslySetInnerHTML={{
+                    __html: renderTokens(previewStep.html) || "<em>No content to preview.</em>",
+                  }}
+                />
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                Personalized preview replaces tokens with sample lead data (e.g. {`{{firstName}}, {{company}}, {{city}}`}).
+              </p>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setPreviewStep(null)}
+                className="text-xs px-4"
+              >
+                Close Preview
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -19,6 +19,25 @@ interface TriggerOutreachModalProps {
     host?: string;
     isConfigured?: boolean;
   };
+  steps?: Array<{
+    id: string;
+    order: number;
+    delayDays: number;
+    templateId: string;
+    templateName: string;
+    subjectA?: string;
+    subjectB?: string | null;
+    html?: string;
+    aiEnabled?: boolean;
+  }>;
+  sampleLead?: {
+    firstName: string | null;
+    lastName: string | null;
+    company: string | null;
+    sector: string | null;
+    city: string | null;
+    email: string;
+  };
   onSuccess?: (msg: string) => void;
   onError?: (msg: string) => void;
 }
@@ -149,6 +168,8 @@ export function TriggerOutreachModal({
   enrolledCount = 0,
   initialMode = "scheduled",
   outboundSender,
+  steps = [],
+  sampleLead,
   onSuccess,
   onError,
 }: TriggerOutreachModalProps) {
@@ -156,6 +177,11 @@ export function TriggerOutreachModal({
 
   // Mode: Immediate vs Scheduled Calendar
   const [mode, setMode] = useState<"immediate" | "scheduled">(initialMode);
+
+  // Template Preview States
+  const [selectedStepIdx, setSelectedStepIdx] = useState<number>(0);
+  const [previewVariant, setPreviewVariant] = useState<"A" | "B">("A");
+  const [showPreviewDetails, setShowPreviewDetails] = useState<boolean>(true);
 
   // Calendar View Month
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
@@ -800,6 +826,188 @@ export function TriggerOutreachModal({
               </div>
             </div>
           )}
+
+          {/* Interactive Email Template Preview Section */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                  ✉️
+                </span>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Email Template Preview (Before Sending)
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPreviewDetails((p) => !p)}
+                className="text-[11px] font-semibold text-brand hover:underline"
+              >
+                {showPreviewDetails ? "Collapse Preview ▲" : "Expand Preview ▼"}
+              </button>
+            </div>
+
+            {showPreviewDetails && (
+              <div className="space-y-3 pt-1">
+                {steps && steps.length > 0 ? (
+                  <>
+                    {/* Multi-step selector */}
+                    {steps.length > 1 && (
+                      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200/80 pb-2">
+                        <span className="text-[11px] font-semibold text-slate-500 mr-1">Select Step:</span>
+                        {steps.map((s, idx) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setSelectedStepIdx(idx)}
+                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
+                              selectedStepIdx === idx
+                                ? "bg-slate-900 text-white shadow-xs"
+                                : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+                            }`}
+                          >
+                            Step {s.order + 1} {s.order === 0 ? "(Initial)" : `(+${s.delayDays}d)`}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Step Card Details */}
+                    {(() => {
+                      const currentStep = steps[selectedStepIdx] || steps[0];
+                      const subject =
+                        previewVariant === "A"
+                          ? currentStep.subjectA
+                          : currentStep.subjectB || currentStep.subjectA;
+
+                      const replaceLeadTokens = (text?: string | null) => {
+                        if (!text) return "";
+                        const lead = sampleLead || {
+                          firstName: "Rahul",
+                          lastName: "Sharma",
+                          company: "Apex Towers",
+                          sector: "Corporate",
+                          city: "Gurgaon",
+                          email: "rahul.sharma@apextowers.com",
+                        };
+                        const tokens: Record<string, string> = {
+                          firstName: lead.firstName || "there",
+                          lastName: lead.lastName || "",
+                          fullName: `${lead.firstName || ""} ${lead.lastName || ""}`.trim() || "there",
+                          company: lead.company || "your organization",
+                          sector: lead.sector || "your industry",
+                          industry: lead.sector || "your industry",
+                          city: lead.city || "your city",
+                          geography: lead.city || "your region",
+                          industryHook: "facility management, housekeeping, and workplace cafeteria dining",
+                        };
+                        return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => tokens[k] ?? "");
+                      };
+
+                      const renderedSubj = replaceLeadTokens(subject);
+                      const renderedHtml = replaceLeadTokens(currentStep.html);
+                      const isOllama = currentStep.templateName?.includes("[Ollama AI]");
+
+                      return (
+                        <div className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-2.5 shadow-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-xs text-slate-900">
+                                {currentStep.templateName}
+                              </span>
+                              {isOllama ? (
+                                <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200">
+                                  🤖 Ollama AI Generated
+                                </span>
+                              ) : (
+                                <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+                                  ✓ Industry Matched
+                                </span>
+                              )}
+                            </div>
+
+                            {currentStep.subjectB && (
+                              <div className="flex items-center gap-1 text-[11px]">
+                                <span className="text-slate-400 font-medium">A/B Subject:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewVariant("A")}
+                                  className={`rounded px-1.5 py-0.5 font-bold transition-colors ${
+                                    previewVariant === "A"
+                                      ? "bg-slate-900 text-white"
+                                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                  }`}
+                                >
+                                  Variant A
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewVariant("B")}
+                                  className={`rounded px-1.5 py-0.5 font-bold transition-colors ${
+                                    previewVariant === "B"
+                                      ? "bg-slate-900 text-white"
+                                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                  }`}
+                                >
+                                  Variant B
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-1 text-xs text-slate-600 border-b border-slate-100 pb-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="w-16 text-slate-400 font-medium">From:</span>
+                              <span className="font-mono text-slate-800 text-[11px]">
+                                {outboundSender?.fromEmail || "sales@vrindaacorp.com"} (VrindaaCorp Services)
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-16 text-slate-400 font-medium">Sample To:</span>
+                              <span className="text-slate-800 font-medium text-[11px]">
+                                {sampleLead?.firstName || "Rahul"} {sampleLead?.lastName || "Sharma"} &lt;
+                                {sampleLead?.email || "rahul.sharma@apextowers.com"}&gt; ({sampleLead?.company || "Apex Towers"})
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="w-16 text-slate-400 font-medium">Subject:</span>
+                              <span className="font-semibold text-slate-900 text-xs">
+                                {renderedSubj || "Facility management solutions for your organization"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Email Body */}
+                          <div className="rounded-lg bg-slate-50/70 p-3 text-xs text-slate-800 leading-relaxed border border-slate-100 max-h-48 overflow-y-auto font-sans">
+                            <div
+                              className="prose prose-xs max-w-none [&>p]:mb-2 [&>ul]:list-disc [&>ul]:pl-4 [&>ul]:mb-2 [&>li]:mb-1 [&>a]:text-brand [&>a]:underline"
+                              dangerouslySetInnerHTML={{
+                                __html: renderedHtml || "<em>No content available for preview.</em>",
+                              }}
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between text-[10px] text-slate-400">
+                            <span>Personalized tags: {`{{firstName}}, {{company}}, {{city}}`}</span>
+                            <span className="text-emerald-600 font-medium">Verified email preview</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 p-3 text-xs text-emerald-800">
+                    <div className="flex items-center gap-1.5 font-semibold">
+                      <span>✨ Automatic Industry Matching & Ollama AI Active</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-emerald-700">
+                      No sequence steps were manually added. When you dispatch or schedule, <strong>Ollama AI on the VPS</strong> or the automatic industry matcher will automatically generate and attach a tailored B2B outreach email template.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Action Buttons */}
           <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 pt-4">

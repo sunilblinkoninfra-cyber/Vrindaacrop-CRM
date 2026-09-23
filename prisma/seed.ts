@@ -29,18 +29,6 @@ async function main() {
   });
 
   const owner = await prisma.user.upsert({
-    where: { email: "owner@vrindaacorp.com" },
-    update: { passwordHash },
-    create: {
-      email: "owner@vrindaacorp.com",
-      name: "Business Owner",
-      passwordHash,
-      role: Role.OWNER,
-      whatsappNumber: "+919999999999",
-    },
-  });
-
-  await prisma.user.upsert({
     where: { email: "owner@vrindaacorpservices.in" },
     update: { passwordHash },
     create: {

@@ -102,19 +102,25 @@ Strict instruction: Respond ONLY with a valid JSON object conforming to the sche
     ],
   };
 
-  let res = await fetch(`${base}/chat/completions`, {
+  const endpoint = base.endsWith("/v1")
+    ? `${base}/chat/completions`
+    : base.includes("/api")
+    ? `${base}/chat`
+    : `${base}/v1/chat/completions`;
+
+  let res = await fetch(endpoint, {
     method: "POST",
     headers,
     body: JSON.stringify(payloadWithSchema),
   });
 
-  // If the local provider (e.g. older Ollama or custom engine) does not support json_schema, fallback to json_object
-  if (!res.ok && (res.status === 400 || res.status === 422)) {
+  // If the local provider does not support json_schema, fallback to json_object or /api/chat
+  if (!res.ok && (res.status === 400 || res.status === 404 || res.status === 422)) {
     const payloadFallback = {
       ...payloadWithSchema,
       response_format: { type: "json_object" },
     };
-    res = await fetch(`${base}/chat/completions`, {
+    res = await fetch(endpoint, {
       method: "POST",
       headers,
       body: JSON.stringify(payloadFallback),
