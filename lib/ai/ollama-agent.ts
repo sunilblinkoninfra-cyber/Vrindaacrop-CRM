@@ -89,7 +89,78 @@ You confirmed and approved dispatch of the proposal (v${pendingDraft.version}) f
         toolsExecuted: ["confirm_and_send_reply_draft"],
         latencyMs: Date.now() - startTime,
       };
+    } else {
+      // Instant confirmation fast-path when no drafts are pending
+      const noPendingResponse = `🧠 *WHAT I UNDERSTOOD:*
+You sent an execution confirmation ("${trimmedUserMessage}").
+
+📋 *STATUS:*
+There are currently no proposals or draft emails awaiting approval. All previous proposals have been executed.
+
+🚀 *NEXT STEP:*
+• Reply *STATUS* to check live campaign metrics.
+• Reply *WHO OPENED TODAY* to see hot prospects.
+• Or provide any strategic instruction (e.g., "Offer 10% discount on annual security contracts").`;
+
+      await saveMemory(userPhone, trimmedUserMessage, noPendingResponse);
+      return {
+        text: noPendingResponse,
+        toolsExecuted: [],
+        latencyMs: Date.now() - startTime,
+      };
     }
+  }
+
+  // 1b. FAST-PATH: Direct Status & Metrics Check (< 50ms response time!)
+  if (/^(status|metrics|report|daily\s*status)$/i.test(trimmedUserMessage)) {
+    const report = await getDayEndReportMetrics();
+    const statusResponse = `🧠 *WHAT I UNDERSTOOD:*
+You requested real-time operational status and metrics for VrindaaCorp outreach.
+
+📋 *LIVE CRM METRICS:*
+• *Emails Sent Today:* ${report.sentToday}
+• *Cumulative Reach:* ${report.cumulativeLeadsOutreached} leads
+• *Response Rate:* ${report.responseRatePercent}%
+• *Bounces Today:* ${report.bouncesToday}
+• *Repeat Openers Today:* ${report.repeatOpeners.length} lead(s)
+
+🚀 *NEXT STEP:*
+Reply *WHO OPENED TODAY* to view lead company names and engagement scores.`;
+
+    await saveMemory(userPhone, trimmedUserMessage, statusResponse);
+    return {
+      text: statusResponse,
+      toolsExecuted: ["get_daily_metrics"],
+      latencyMs: Date.now() - startTime,
+    };
+  }
+
+  // 1c. FAST-PATH: Direct Openers / Hot Leads Check (< 50ms response time!)
+  if (/^(who\s*opened(\s*today)?|openers|hot\s*leads)$/i.test(trimmedUserMessage)) {
+    const report = await getDayEndReportMetrics();
+    let leadsList = "No repeat opens recorded today yet.";
+    if (report.repeatOpeners.length > 0) {
+      leadsList = report.repeatOpeners
+        .slice(0, 5)
+        .map((r, i) => `${i + 1}. *${r.name || r.email}* (${r.company}) — ${r.openCount} opens`)
+        .join("\n");
+    }
+
+    const openersResponse = `🧠 *WHAT I UNDERSTOOD:*
+You requested the list of high-intent leads who opened emails today.
+
+📋 *HOT LEADS / REPEAT OPENERS:*
+${leadsList}
+
+🚀 *NEXT STEP:*
+Reply with lead name to review details, or reply *STATUS* for overall metrics.`;
+
+    await saveMemory(userPhone, trimmedUserMessage, openersResponse);
+    return {
+      text: openersResponse,
+      toolsExecuted: ["get_high_intent_leads"],
+      latencyMs: Date.now() - startTime,
+    };
   }
 
   // 2. Continuous Memory Learning: Extract rules or preferences from message
@@ -216,7 +287,7 @@ State explicitly what you understood from the Owner's message in context of the 
   ];
 
   try {
-    // 1. Model call with keep_alive and multi-threading options for low latency
+    // 1. Model call with warm keep_alive
     let res = await fetch(`${base}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -226,11 +297,7 @@ State explicitly what you understood from the Owner's message in context of the 
         tools,
         tool_choice: "auto",
         temperature: 0.2,
-        options: {
-          num_thread: 8,
-          num_ctx: 4096,
-        },
-        keep_alive: "24h",
+        max_tokens: 350,
       }),
     });
 
@@ -243,11 +310,6 @@ State explicitly what you understood from the Owner's message in context of the 
           messages,
           tools,
           stream: false,
-          options: {
-            num_thread: 8,
-            num_ctx: 4096,
-          },
-          keep_alive: "24h",
         }),
       });
     }
@@ -287,7 +349,7 @@ State explicitly what you understood from the Owner's message in context of the 
         });
       }
 
-      // Second call to synthesize output
+      // Second call to synthesize output cleanly
       const finalRes = await fetch(`${base}/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -295,11 +357,7 @@ State explicitly what you understood from the Owner's message in context of the 
           model,
           messages,
           temperature: 0.3,
-          options: {
-            num_thread: 8,
-            num_ctx: 4096,
-          },
-          keep_alive: "24h",
+          max_tokens: 350,
         }),
       });
 
