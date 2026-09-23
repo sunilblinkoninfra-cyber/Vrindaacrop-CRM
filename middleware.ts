@@ -44,10 +44,10 @@ export default withAuth(
   }
 );
 
-// Protect CRM app routes; leave auth, tracking, webhooks, unsubscribe, inbound
+// Protect CRM app routes; leave auth, tracking, webhooks, whatsapp, unsubscribe, inbound
 // capture, cron, and static assets (images, fonts, logo) public.
 export const config = {
   matcher: [
-    "/((?!api/auth|api/track|api/webhooks|api/unsubscribe|api/inbound|api/cron|login|_next/static|_next/image|favicon.ico|logo.png|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf)$).*)",
+    "/((?!api/auth|api/track|api/webhooks|api/whatsapp|api/unsubscribe|api/inbound|api/cron|login|_next/static|_next/image|favicon.ico|logo.png|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf)$).*)",
   ],
 };
