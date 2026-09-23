@@ -129,6 +129,35 @@ export const CRM_TOOL_DEFINITIONS: CrmToolDefinition[] = [
       required: ["newCap"],
     },
   },
+  {
+    name: "get_pending_reply_draft",
+    description: "Get the current pending proposal/reply draft for an inbound client response, including what the client wrote and what the AI drafted.",
+    parameters: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "revise_reply_draft",
+    description: "Revise and update the pending email reply draft with specific feedback, discounts, pricing, scheduling, or tone requested by the owner.",
+    parameters: {
+      type: "object",
+      properties: {
+        feedback: { type: "string", description: "Instructions on how to revise the draft (e.g. 'Offer 15% discount and schedule a call for Friday')" },
+      },
+      required: ["feedback"],
+    },
+  },
+  {
+    name: "confirm_and_send_reply_draft",
+    description: "Approve and dispatch the pending email draft to the client via sales@vrindaacorp.com after receiving owner confirmation.",
+    parameters: {
+      type: "object",
+      properties: {
+        draftId: { type: "string", description: "Optional specific draft ID to dispatch. If omitted, sends the latest pending draft." },
+      },
+    },
+  },
 ];
 
 /**
@@ -320,6 +349,110 @@ export async function executeCrmTool(
         const cap = Number(args.newCap) || 75;
         const res = await applyBiWeeklyStrategy(cap);
         return JSON.stringify(res);
+      }
+
+      case "get_pending_reply_draft": {
+        const draft = await prisma.proposedReplyDraft.findFirst({
+          where: { status: { in: ["PENDING_APPROVAL", "REVISED"] } },
+          orderBy: { updatedAt: "desc" },
+          include: { lead: true },
+        });
+        if (!draft) return JSON.stringify({ message: "No pending reply drafts awaiting approval." });
+        return JSON.stringify({
+          draftId: draft.id,
+          version: draft.version,
+          leadName: fullName(draft.lead.firstName, draft.lead.lastName),
+          company: draft.lead.company,
+          email: draft.lead.email,
+          inboundInquiry: draft.inboundBody,
+          draftSubject: draft.draftSubject,
+          draftBody: draft.draftBody,
+          status: draft.status,
+        });
+      }
+
+      case "revise_reply_draft": {
+        const draft = await prisma.proposedReplyDraft.findFirst({
+          where: { status: { in: ["PENDING_APPROVAL", "REVISED"] } },
+          orderBy: { updatedAt: "desc" },
+          include: { lead: true },
+        });
+        if (!draft) return JSON.stringify({ error: "No pending draft found to revise." });
+        const { generateProposedReply } = await import("@/lib/ai/reply-draft");
+        const nextVersion = draft.version + 1;
+        const revised = await generateProposedReply({
+          lead: draft.lead,
+          inboundSubject: draft.inboundSubject,
+          inboundBody: draft.inboundBody,
+          currentDraft: { subject: draft.draftSubject, bodyHtml: draft.draftBody },
+          revisionFeedback: args.feedback,
+        });
+        await prisma.proposedReplyDraft.update({
+          where: { id: draft.id },
+          data: {
+            draftSubject: revised.subject,
+            draftBody: revised.bodyHtml,
+            version: nextVersion,
+            revisionNotes: args.feedback,
+            status: "REVISED",
+          },
+        });
+        await prisma.activity.create({
+          data: {
+            leadId: draft.lead.id,
+            type: "note",
+            message: `📝 WhatsApp revision requested: "${args.feedback}". AI updated draft to v${nextVersion}.`,
+          },
+        });
+        return JSON.stringify({
+          message: `Revised draft to v${nextVersion}.`,
+          version: nextVersion,
+          leadName: fullName(draft.lead.firstName, draft.lead.lastName),
+          company: draft.lead.company,
+          draftSubject: revised.subject,
+          draftBody: revised.bodyText,
+        });
+      }
+
+      case "confirm_and_send_reply_draft": {
+        const draft = await prisma.proposedReplyDraft.findFirst({
+          where: { status: { in: ["PENDING_APPROVAL", "REVISED"] } },
+          orderBy: { updatedAt: "desc" },
+          include: { lead: true },
+        });
+        if (!draft) return JSON.stringify({ error: "No pending draft found to dispatch." });
+        const { sendEmail } = await import("@/lib/ses");
+        const emailResult = await sendEmail({
+          to: draft.lead.email,
+          subject: draft.draftSubject,
+          html: draft.draftBody,
+          leadId: draft.lead.id,
+          tags: { draftId: draft.id, type: "whatsapp_approved_reply" },
+        });
+        await prisma.proposedReplyDraft.update({
+          where: { id: draft.id },
+          data: {
+            status: "SENT",
+            sentAt: new Date(),
+            sentMessageId: emailResult?.messageId || "sent",
+          },
+        });
+        await prisma.activity.create({
+          data: {
+            leadId: draft.lead.id,
+            type: "email",
+            message: `✅ Reply draft (v${draft.version}) confirmed via WhatsApp and dispatched to ${draft.lead.email}.`,
+          },
+        });
+        return JSON.stringify({
+          sent: true,
+          recipient: draft.lead.email,
+          leadName: fullName(draft.lead.firstName, draft.lead.lastName),
+          company: draft.lead.company,
+          subject: draft.draftSubject,
+          version: draft.version,
+          message: `Email successfully dispatched to ${draft.lead.email}.`,
+        });
       }
 
       default:

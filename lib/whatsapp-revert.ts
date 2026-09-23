@@ -212,12 +212,17 @@ export async function handleIncomingWhatsAppMessage(args: {
         },
       });
 
-      // Reply back to WhatsApp confirming dispatch
-      const confirmMsg = formatConfirmationWhatsAppNotification({
-        leadName,
-        leadEmail: draft.lead.email,
-        version: draft.version,
-      });
+      // Reply back to WhatsApp confirming understanding and successful dispatch
+      const confirmMsg = `🧠 *WHAT I UNDERSTOOD:*
+You approved the proposal draft (v${draft.version}) for *${leadName}* (${draft.lead.company || "Client"}).
+
+🚀 *PROCEEDED & DISPATCHED:*
+✅ Email dispatched to *${draft.lead.email}* via \`sales@vrindaacorp.com\`.
+• Subject: "${draft.draftSubject}"
+• Version: v${draft.version}
+• Time: ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST
+• Timeline activity recorded in CRM.`;
+
       await sendWhatsAppTextMessage(fromPhone, confirmMsg);
 
       return {
@@ -238,77 +243,8 @@ export async function handleIncomingWhatsAppMessage(args: {
     }
   }
 
-  // 5. If an active draft exists AND the text is NOT a general CRM inquiry -> Revise the draft
-  const isCrmQuery = /^(status|report|metrics|stats|summary|day\s*end|pause|stop|resume|start|who\s*opened|repeat|hot|leads?|search|add\s+lead)/i.test(trimmedText);
-
-  if (draft && !isCrmQuery) {
-    const revisionFeedback = trimmedText;
-    const nextVersion = draft.version + 1;
-    const leadName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
-
-    try {
-      const revised = await generateProposedReply({
-        lead: draft.lead,
-        inboundSubject: draft.inboundSubject,
-        inboundBody: draft.inboundBody,
-        currentDraft: {
-          subject: draft.draftSubject,
-          bodyHtml: draft.draftBody,
-        },
-        revisionFeedback,
-      });
-
-      // Update draft with revised content
-      await prisma.proposedReplyDraft.update({
-        where: { id: draft.id },
-        data: {
-          draftSubject: revised.subject,
-          draftBody: revised.bodyHtml,
-          version: nextVersion,
-          revisionNotes: revisionFeedback,
-          status: "REVISED",
-        },
-      });
-
-      // Log revision activity
-      await prisma.activity.create({
-        data: {
-          leadId: draft.lead.id,
-          type: "note",
-          message: `📝 Agent suggested changes via WhatsApp: "${revisionFeedback}". AI updated draft to v${nextVersion}.`,
-        },
-      });
-
-      // Disseminate revised draft to agent's WhatsApp
-      const revisedWhatsAppMsg = formatRevisedDraftNotification({
-        leadName,
-        draftSubject: revised.subject,
-        draftBody: revised.bodyText,
-        version: nextVersion,
-        feedback: revisionFeedback,
-      });
-
-      await sendWhatsAppTextMessage(fromPhone, revisedWhatsAppMsg);
-
-      return {
-        ok: true,
-        action: "revised",
-        draftId: draft.id,
-        version: nextVersion,
-        message: `Revised draft (v${nextVersion}) created with feedback and shared to WhatsApp.`,
-      };
-    } catch (err: any) {
-      console.error("[Failed to revise draft]:", err);
-      return {
-        ok: false,
-        action: "none",
-        draftId: draft.id,
-        error: `Failed to revise draft: ${err.message}`,
-      };
-    }
-  }
-
-  // 6. Conversational Ollama Agent Execution (CRM co-pilot commands, metrics, reports, lead searches)
+  // 5. Intelligent Conversational Agent Execution
+  // Contextualizes message, confirms understanding, modifies drafts or executes CRM tools, and provides next steps
   const { runOllamaAgent } = await import("@/lib/ai/ollama-agent");
   const agentRes = await runOllamaAgent({
     userMessage: trimmedText,

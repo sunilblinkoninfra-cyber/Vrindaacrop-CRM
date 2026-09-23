@@ -1,5 +1,8 @@
 import { env } from "@/lib/env";
+import { prisma } from "@/lib/prisma";
+import { getDayEndReportMetrics } from "@/lib/metrics";
 import { CRM_TOOL_DEFINITIONS, executeCrmTool } from "@/lib/ai/tools/crm-tools";
+import { fullName } from "@/lib/utils";
 
 export type AgentResponse = {
   text: string;
@@ -7,7 +10,8 @@ export type AgentResponse = {
 };
 
 /**
- * Runs the conversational Ollama agent with tool calling for incoming WhatsApp messages.
+ * Runs the conversational Ollama agent with deep context and tool calling.
+ * Strict protocol: Contextualize -> Confirm Understanding -> Propose/Execute -> Proceed.
  */
 export async function runOllamaAgent(args: {
   userMessage: string;
@@ -20,17 +24,106 @@ export async function runOllamaAgent(args: {
   const base = (env.ai.localBaseUrl || "http://127.0.0.1:11434").replace(/\/$/, "");
   const model = env.ai.localModel || "llama3.1:8b";
 
-  const systemPrompt = `You are the executive AI Operations Co-Pilot for VrindaaCorp Services CRM running on the company VPS.
-You are communicating directly with ${userName || "the Business Owner"} via WhatsApp.
+  // 1. Gather Live CRM Context
+  let metricsSummary = "No metrics available.";
+  let pendingDraftContext = "No client email replies pending approval.";
+  let conversationHistory: any[] = [];
+
+  try {
+    const report = await getDayEndReportMetrics();
+    metricsSummary = `Emails Sent Today: ${report.sentToday} | Cumulative Reach: ${report.cumulativeLeadsOutreached} | Response Rate: ${report.responseRatePercent}% | Bounces Today: ${report.bouncesToday} | Repeat Openers Today: ${report.repeatOpeners.length}`;
+  } catch (err) {
+    console.warn("[Ollama Agent Context] Metrics fetch failed:", err);
+  }
+
+  try {
+    const draft = await prisma.proposedReplyDraft.findFirst({
+      where: { status: { in: ["PENDING_APPROVAL", "REVISED"] } },
+      orderBy: { updatedAt: "desc" },
+      include: { lead: true },
+    });
+
+    if (draft) {
+      const clientName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
+      pendingDraftContext = `
+[ACTIVE CLIENT REVERT PENDING APPROVAL]
+- Client: ${clientName} (${draft.lead.company})
+- Client Email: ${draft.lead.email}
+- Inbound Client Email Inquiry: "${draft.inboundBody.slice(0, 300)}"
+- Current AI Draft (Version ${draft.version}):
+  Subject: ${draft.draftSubject}
+  Body Preview: ${draft.draftBody.replace(/<[^>]*>/g, "").slice(0, 350)}
+- Status: ${draft.status} (Awaiting owner confirmation to send)
+`;
+    }
+  } catch (err) {
+    console.warn("[Ollama Agent Context] Draft fetch failed:", err);
+  }
+
+  // 2. Fetch Recent WhatsApp Conversation Memory (Last 4 messages)
+  try {
+    const pastPayloads = await prisma.inboundLeadLog.findMany({
+      where: { channel: "whatsapp_conversation" },
+      orderBy: { createdAt: "desc" },
+      take: 4,
+    });
+
+    for (const p of pastPayloads.reverse()) {
+      const data = p.payload as any;
+      if (data?.userMessage) {
+        conversationHistory.push({ role: "user", content: data.userMessage });
+      }
+      if (data?.agentResponse) {
+        conversationHistory.push({ role: "assistant", content: data.agentResponse });
+      }
+    }
+  } catch (err) {
+    console.warn("[Ollama Agent Context] Conversation history fetch failed:", err);
+  }
+
+  const nowIST = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+
+  const systemPrompt = `You are the executive AI Operations Co-Pilot for VrindaaCorp Services CRM running autonomously on the company VPS.
+You are communicating directly with ${userName || "the Business Owner / Administrator"} via WhatsApp.
 User Role: ${userRole}.
 Phone: +${userPhone}.
+Current Local Time: ${nowIST} IST.
 
-Core Rules:
-1. Keep responses clear, concise, and beautifully formatted for WhatsApp (use *bold*, clean bullet points, emojis).
-2. You have full access to CRM tools: get_daily_metrics, get_high_intent_leads, get_hot_leads, get_lead_details, trigger_outreach, pause_outreach, resume_outreach, create_or_update_lead, generate_day_end_report, run_biweekly_strategy_analysis, approve_strategy.
-3. If the user asks for stats, high-intent leads, pause/resume, search, or creating a lead, call the appropriate tool immediately.
-4. When reporting repeat openers, always highlight their company and open count to help the team close deals.
-5. If the user commands "pause" or "stop", immediately invoke pause_outreach. If "resume", invoke resume_outreach.`;
+[LIVE CRM SYSTEM SITUATION]
+${metricsSummary}
+${pendingDraftContext}
+
+[CORE PROTOCOL: CONTEXTUALIZE, CONFIRM UNDERSTANDING, AND PROCEED]
+The Business Owner requires that you NEVER rely only on rigid keyword commands.
+You must contextualize every incoming message against the current CRM state, confirm what you understood, and present the clear path forward.
+
+For EVERY response, format your message cleanly using WhatsApp markdown (*bold*, bullet points, emojis) following this 3-step structure:
+
+1. 🧠 *WHAT I UNDERSTOOD:*
+Synthesize the Owner's exact intent and instructions in context of the CRM state, pending proposals, or active campaigns. Show that you comprehend their nuances, pricing changes, strategic direction, or inquiry.
+
+2. 📋 *ACTION DETAILS / INSIGHTS / DRAFT:*
+- If modifying or revising an email proposal: Present the updated draft with Subject and Body incorporating the owner's feedback (e.g. customized discounts, meeting times, scope).
+- If the owner asks a question or for data: Provide real numbers, lead names, open counts, and actionable insights.
+- If adjusting campaigns or settings: Explain the exact operational adjustments.
+
+3. 🚀 *NEXT STEP & CONFIRMATION:*
+- If an action requires sending an email or altering campaigns:
+  "👉 To proceed and execute this immediately, reply: *CONFIRM* or *YES*.
+  If you want any changes or further refinements, simply tell me."
+- If the Owner ALREADY explicitly confirmed (e.g., "YES", "CONFIRM", "SEND IT", "GO AHEAD", "PROCEED"):
+  Immediately execute the action using your tools, and reply:
+  "✅ *Proceeded & Executed Successfully!* [Clear receipt of what was dispatched/executed, recipient email, timestamp, and next steps]."
+
+TOOLS AVAILABLE:
+- revise_reply_draft: Call when owner wants changes to the pending client email draft.
+- confirm_and_send_reply_draft: Call when owner approves/confirms dispatching the pending email draft.
+- get_daily_metrics: Real-time send counts, opens, response rate.
+- get_high_intent_leads: Top repeat openers.
+- get_hot_leads: Leads marked hot or with recent replies.
+- get_lead_details: Look up any lead by company, name, or email.
+- pause_outreach / resume_outreach: Campaign halt/restart.
+- approve_strategy: Approve bi-weekly warmup scaling cap.`;
 
   // Format tools for Ollama / OpenAI API format
   const tools = CRM_TOOL_DEFINITIONS.map((t) => ({
@@ -44,11 +137,12 @@ Core Rules:
 
   const messages: any[] = [
     { role: "system", content: systemPrompt },
+    ...conversationHistory,
     { role: "user", content: userMessage },
   ];
 
   try {
-    // 1. Initial call to model
+    // 1. Initial call to Ollama
     let res = await fetch(`${base}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -61,7 +155,6 @@ Core Rules:
       }),
     });
 
-    // Fallback to /api/chat if /v1/chat/completions is unavailable
     if (!res.ok) {
       res = await fetch(`${base}/api/chat`, {
         method: "POST",
@@ -110,7 +203,7 @@ Core Rules:
         });
       }
 
-      // 2. Second call to model to summarize tool output
+      // 2. Second call to model to synthesize output with the 3-step protocol
       const finalRes = await fetch(`${base}/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,25 +218,55 @@ Core Rules:
         const finalData = await finalRes.json();
         const finalText = finalData.choices?.[0]?.message?.content;
         if (finalText) {
-          return { text: finalText.trim(), toolsExecuted };
+          const trimmed = finalText.trim();
+          // Save to conversation memory
+          await saveMemory(userPhone, userMessage, trimmed);
+          return { text: trimmed, toolsExecuted };
         }
       }
     }
 
     // Direct text response
     if (message?.content) {
-      return { text: message.content.trim(), toolsExecuted };
+      const trimmed = message.content.trim();
+      await saveMemory(userPhone, userMessage, trimmed);
+      return { text: trimmed, toolsExecuted };
     }
 
-    return {
-      text: "✅ Command received and executed.",
-      toolsExecuted,
-    };
+    const fallback = `🧠 *WHAT I UNDERSTOOD:*
+Received your message: "${userMessage}".
+
+📋 *STATUS:*
+CRM Operations are running normally. No pending actions require confirmation.
+
+🚀 *NEXT STEP:*
+Reply with *STATUS*, *WHO OPENED TODAY*, or give any instruction (e.g. revise draft, search lead, pause campaign).`;
+
+    await saveMemory(userPhone, userMessage, fallback);
+    return { text: fallback, toolsExecuted };
   } catch (err: any) {
     console.error("[runOllamaAgent error]:", err);
-    // Fallback response for offline or timeout
     return {
-      text: `⚠️ *AI Agent Offline*: Ollama model is currently unreachable on the VPS. Please check if \`ollama serve\` is running. (Error: ${err.message})`,
+      text: `⚠️ *AI Agent Error*: Unable to complete request via Ollama model. (Error: ${err.message})`,
     };
+  }
+}
+
+async function saveMemory(phone: string, userMessage: string, agentResponse: string) {
+  try {
+    await prisma.inboundLeadLog.create({
+      data: {
+        channel: "whatsapp_conversation",
+        status: "recorded",
+        payload: {
+          userPhone: phone,
+          userMessage,
+          agentResponse,
+          timestamp: new Date().toISOString(),
+        },
+      },
+    });
+  } catch (err) {
+    console.warn("[saveMemory failed]:", err);
   }
 }
