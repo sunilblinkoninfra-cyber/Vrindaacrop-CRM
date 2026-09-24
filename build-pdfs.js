@@ -19,6 +19,7 @@ function findMarkdownFiles(dir) {
   let results = [];
   const list = fs.readdirSync(dir);
   for (const file of list) {
+    if (file.startsWith('.')) continue;
     const filePath = path.join(dir, file);
     const stat = fs.statSync(filePath);
     if (stat && stat.isDirectory()) {
@@ -96,35 +97,35 @@ function buildHtmlPage(title, bodyContent) {
       font-size: 13.5pt;
       border-left: 4.5px solid #0284c7;
       padding-left: 10px;
-      margin-top: 22px;
-      margin-bottom: 10px;
+      margin-top: 16px;
+      margin-bottom: 8px;
     }
 
     h3 {
       font-size: 11pt;
       border-bottom: 1px solid #e2e8f0;
-      padding-bottom: 4px;
-      margin-top: 16px;
-      margin-bottom: 8px;
+      padding-bottom: 3px;
+      margin-top: 14px;
+      margin-bottom: 6px;
     }
 
     h4 {
       font-size: 10pt;
-      margin-top: 12px;
-      margin-bottom: 6px;
+      margin-top: 10px;
+      margin-bottom: 4px;
     }
 
     p {
-      margin: 0.6rem 0;
+      margin: 0.45rem 0;
     }
 
     ul, ol {
-      margin: 0.6rem 0;
+      margin: 0.45rem 0;
       padding-left: 1.5rem;
     }
 
     li {
-      margin: 0.25rem 0;
+      margin: 0.2rem 0;
     }
 
     a {
@@ -135,14 +136,14 @@ function buildHtmlPage(title, bodyContent) {
     hr {
       border: none;
       border-top: 1px solid #cbd5e1;
-      margin: 1.5rem 0;
+      margin: 1rem 0;
     }
 
     /* Tables: Full width, border collapse, alternating row backgrounds, dark headers, word-wrap */
     table {
       width: 100%;
       border-collapse: collapse;
-      margin: 1.25rem 0;
+      margin: 0.9rem 0;
       page-break-inside: avoid;
       break-inside: avoid;
       table-layout: auto;
@@ -346,13 +347,31 @@ async function main() {
   console.log('  VrindaaCorp Services — Handover PDF Batch Conversion Engine  ');
   console.log('===============================================================\n');
 
-  if (!fs.existsSync(HANDOVER_DIR)) {
-    console.error(`Error: Handover directory not found at ${HANDOVER_DIR}`);
-    process.exit(1);
+  let mdFiles = [];
+  const targetArg = process.argv[2];
+  if (targetArg) {
+    const resolved = path.resolve(targetArg);
+    if (fs.existsSync(resolved)) {
+      if (fs.statSync(resolved).isDirectory()) {
+        mdFiles = findMarkdownFiles(resolved);
+      } else if (resolved.endsWith('.md')) {
+        mdFiles = [resolved];
+      }
+    } else {
+      console.error(`Error: Specified target does not exist: ${targetArg}`);
+      process.exit(1);
+    }
   }
 
-  const mdFiles = findMarkdownFiles(HANDOVER_DIR);
-  console.log(`Found ${mdFiles.length} Markdown files in VrindaaCorp_Final_Handover/:\n`);
+  if (mdFiles.length === 0) {
+    if (!fs.existsSync(HANDOVER_DIR)) {
+      console.error(`Error: Handover directory not found at ${HANDOVER_DIR}`);
+      process.exit(1);
+    }
+    mdFiles = findMarkdownFiles(HANDOVER_DIR);
+  }
+
+  console.log(`Found ${mdFiles.length} Markdown file(s) to process:\n`);
   mdFiles.forEach((f, i) => console.log(`  ${i + 1}. ${path.relative(__dirname, f)}`));
   console.log('\nLaunching headless browser engine...');
 

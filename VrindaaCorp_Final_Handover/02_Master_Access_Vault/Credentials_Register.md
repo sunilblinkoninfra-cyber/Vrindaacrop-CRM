@@ -84,8 +84,6 @@ The CRM uses **NextAuth.js** with bcrypt-hashed credentials (salt cost factor: 1
 | Account Type | Email Address | Initial Default Password | Configured Role | Access Level |
 | :--- | :--- | :--- | :---: | :--- |
 | **Super Admin (CRM)** | `admin@vrindaacorp.com` | `admin123` | `ADMIN` | Unrestricted global CRM admin rights |
-| **Secondary Admin** | `admin@vrindaacorpservices.in` | `admin123` | `ADMIN` | Full administrative backup account |
-| **Executive Owner** | `owner@vrindaacorpservices.in` | `admin123` | `OWNER` | Strategic memory control & WhatsApp co-pilot |
 
 > [!IMPORTANT]
 > Change the default seed password (`admin123`) immediately upon first login via **Account Settings** or **Settings &rarr; Users**.
