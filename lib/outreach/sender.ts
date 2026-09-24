@@ -127,7 +127,8 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
     }
 
     // Pre-flight deliverability gate: if mailbox was not yet probed via SMTP, verify existence now
-    if (!lead.smtpCheckedAt) {
+    const needsProbe = !lead.smtpCheckedAt || !lead.validationReason || lead.validationReason.startsWith("Domain MX verified");
+    if (needsProbe) {
       const domain = lead.email.split("@")[1]?.toLowerCase();
       const now = new Date();
 
@@ -217,10 +218,13 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
             },
           });
         } else {
-          // Probe inconclusive (port 25 timeout/block) — stamp smtpCheckedAt to avoid repeated re-probes
+          // Probe inconclusive (port 25 timeout/block) — stamp smtpCheckedAt and reason to avoid repeated re-probes
           await prisma.lead.update({
             where: { id: lead.id },
-            data: { smtpCheckedAt: now },
+            data: {
+              validationReason: lead.validationReason ?? "SMTP: probe inconclusive (timeout/refused)",
+              smtpCheckedAt: now,
+            },
           });
         }
       }
