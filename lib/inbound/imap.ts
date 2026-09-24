@@ -86,14 +86,17 @@ export async function syncImapReplies(options?: {
       const searchCriteria = { since: sinceDate };
       const messages = client.fetch(searchCriteria, {
         envelope: true,
-        source: true,
         uid: true,
       });
 
       const buffer: any[] = [];
-      for await (const msg of messages) {
-        buffer.push(msg);
-        if (buffer.length >= maxMessages) break;
+      try {
+        for await (const msg of messages) {
+          buffer.push(msg);
+          if (buffer.length >= maxMessages) break;
+        }
+      } catch (err: any) {
+        console.warn("[IMAP] Envelope fetch warning:", err?.message);
       }
 
       // Process in reverse chronological order (newest first)
@@ -128,9 +131,20 @@ export async function syncImapReplies(options?: {
             fromAddr.includes("postmaster") ||
             /delivery status notification|failure|undeliver|returned mail|message blocked|rejected/i.test(subject);
 
-          if (isBounce && msg.source) {
+          if (isBounce) {
             try {
-              const parsed = await simpleParser(msg.source);
+              let messageSource: Buffer | null = msg.source ?? null;
+              if (!messageSource) {
+                try {
+                  const dl = await client.download(msg.uid.toString(), undefined, { uid: true });
+                  if (dl && dl.content) messageSource = dl.content;
+                } catch (dlErr: any) {
+                  console.warn(`[IMAP] Could not download bounce source for UID ${msg.uid}:`, dlErr?.message);
+                }
+              }
+              if (!messageSource) continue;
+
+              const parsed = await simpleParser(messageSource);
               const fullText = ((parsed.text || "") + " " + (parsed.html || "") + " " + subject).trim();
 
               // 1. Try to extract from bounce headers
@@ -298,9 +312,19 @@ export async function syncImapReplies(options?: {
           // Parse snippet and full body from message source
           let snippet = subject;
           let fullBody = subject;
-          if (msg.source) {
+          let messageSource: Buffer | null = msg.source ?? null;
+          if (!messageSource) {
             try {
-              const parsed = await simpleParser(msg.source);
+              const dl = await client.download(msg.uid.toString(), undefined, { uid: true });
+              if (dl && dl.content) messageSource = dl.content;
+            } catch (dlErr: any) {
+              console.warn(`[IMAP] Could not download reply source for UID ${msg.uid}:`, dlErr?.message);
+            }
+          }
+
+          if (messageSource) {
+            try {
+              const parsed = await simpleParser(messageSource);
               fullBody = (parsed.text || parsed.html || subject).trim();
               snippet = fullBody.slice(0, 300).trim();
             } catch {
