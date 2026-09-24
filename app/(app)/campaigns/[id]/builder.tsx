@@ -81,6 +81,7 @@ type ScheduleDetails = {
     firstSendAt?: string;
     lastSendAt?: string;
     leadsPerDay?: number;
+    delaySeconds?: number;
     totalScheduled?: number;
     scheduledAt?: string;
   } | null;
@@ -507,8 +508,13 @@ export function CampaignBuilder({
               <div className="mt-1 text-sm font-bold text-slate-900">
                 {scheduleDetails.sendWindowStart} – {scheduleDetails.sendWindowEnd}
               </div>
-              <div className="mt-1 text-[11px] text-slate-500">
-                {scheduleDetails.timezone} (Indian Standard Time)
+              <div className="mt-1 text-[11px] text-slate-500 flex items-center justify-between">
+                <span>{scheduleDetails.timezone} (IST)</span>
+                {typeof scheduleDetails.scheduleMeta?.delaySeconds === "number" && (
+                  <span className="font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                    ⏱️ {scheduleDetails.scheduleMeta.delaySeconds}s spacing
+                  </span>
+                )}
               </div>
             </div>
 

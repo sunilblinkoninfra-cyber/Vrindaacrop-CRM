@@ -27,6 +27,7 @@ type CampaignItem = {
     firstSendAt?: string;
     lastSendAt?: string;
     leadsPerDay?: number;
+    delaySeconds?: number;
     totalScheduled?: number;
     scheduledAt?: string;
   } | null;
@@ -258,6 +259,17 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
                         <span>🛡️</span>
                         <span>Valid Only: <strong>{c.activeValidCount ?? 0} eligible</strong></span>
                       </div>
+
+                      {/* Intra-Batch Spacing Delay Badge */}
+                      {typeof c.scheduleMeta?.delaySeconds === "number" && (
+                        <div
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-indigo-800 bg-indigo-50 border border-indigo-200"
+                          title="Intra-batch spacing delay between individual email dispatches"
+                        >
+                          <span>⏱️</span>
+                          <span>Pacing: <strong>{c.scheduleMeta.delaySeconds}s spacing</strong></span>
+                        </div>
+                      )}
 
                       {c.pausedCount && c.pausedCount > 0 ? (
                         <span

@@ -71,6 +71,46 @@ const DEFAULT_DIRECTIVES: OwnerDirective[] = [
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
+  {
+    id: "dir_no_bounce_reply",
+    category: "standing_rule",
+    content: "Do not consider bounce emails as reply. Bounces and delivery failure notices are system errors to be suppressed, never prospect responses.",
+    source: "owner_explicit",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "dir_no_invalid_email_reply",
+    category: "standing_rule",
+    content: "Do not consider invalid or incorrect email notifications (user unknown, mailbox not found, address rejected) as reply.",
+    source: "owner_explicit",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "dir_no_away_msg_reply",
+    category: "standing_rule",
+    content: "Do not consider away messages, out-of-office (OOO) auto-responders, or vacation notices as a hot lead or reply.",
+    source: "owner_explicit",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "dir_meaningful_revert_only",
+    category: "standing_rule",
+    content: "Only if a revert is asking for more info, further communication, company profile or a meaningful response should it be considered as a reply.",
+    source: "owner_explicit",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "dir_hot_lead_interest_only",
+    category: "standing_rule",
+    content: "Strictly classify prospects as HOT LEADS only if the client shows interest to know more or requests more information (pricing, company profile, brochure, consultation, call/meeting).",
+    source: "owner_explicit",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
 ];
 
 /**

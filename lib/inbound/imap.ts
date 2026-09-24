@@ -7,6 +7,7 @@ import { handleReply } from "@/lib/outreach/reply";
 import { recordEvent, suppressLead } from "@/lib/outreach/events";
 import { localDate } from "@/lib/outreach/scheduler";
 import { EmailEventType, SuppressionReason, ValidationStatus } from "@prisma/client";
+import { classifyInboundEmail } from "@/lib/inbound/classification";
 
 export type ImapSyncResult = {
   ok: boolean;
@@ -313,6 +314,8 @@ export async function syncImapReplies(options?: {
           let snippet = subject;
           let fullBody = subject;
           let messageSource: any = msg.source ?? null;
+          let parsedHeaders: Record<string, any> = {};
+
           if (!messageSource) {
             try {
               const dl = await client.download(msg.uid.toString(), undefined, { uid: true });
@@ -327,18 +330,150 @@ export async function syncImapReplies(options?: {
               const parsed = await simpleParser(messageSource);
               fullBody = (parsed.text || parsed.html || subject).trim();
               snippet = fullBody.slice(0, 300).trim();
+              if (parsed.headers) {
+                for (const [k, v] of parsed.headers) {
+                  parsedHeaders[k.toLowerCase()] = v;
+                }
+              }
             } catch {
               snippet = subject;
               fullBody = subject;
             }
           }
 
+          // Strict Qualification Check:
+          // 1. Do not consider bounce emails as reply.
+          // 2. Do not consider invalid/incorrect email notification as reply.
+          // 3. Do not consider away messages as a hot lead or reply.
+          // 4. Only meaningful responses should be considered as reply.
+          // 5. Only interest to know more or requesting info should be hot leads.
+          const classification = classifyInboundEmail({
+            subject,
+            body: fullBody,
+            fromAddr,
+            headers: parsedHeaders,
+          });
+
+          // 1 & 2: Bounce or Invalid Mailbox Notification
+          if (classification.isBounce || classification.isInvalidEmail) {
+            const lastSent = await prisma.emailEvent.findFirst({
+              where: { leadId: lead.id, type: EmailEventType.SENT },
+              orderBy: { createdAt: "desc" },
+              select: { enrollmentId: true },
+            });
+
+            await recordEvent({
+              leadId: lead.id,
+              enrollmentId: lastSent?.enrollmentId ?? null,
+              type: EmailEventType.BOUNCED,
+              messageId: messageId ?? undefined,
+              metadata: {
+                reason: classification.reason,
+                source: "imap_inbound_filter",
+                subject,
+                date: msgDate,
+              },
+            });
+
+            await suppressLead(
+              lead.id,
+              lead.email,
+              SuppressionReason.HARD_BOUNCE,
+              classification.reason
+            );
+
+            await prisma.activity
+              .create({
+                data: {
+                  leadId: lead.id,
+                  type: "email",
+                  message: `Outreach email bounced: ${classification.reason}`,
+                },
+              })
+              .catch(() => undefined);
+
+            const today = localDate(new Date(), env.sending.timezone);
+            await prisma.sendingDay.updateMany({
+              where: { localDate: today },
+              data: { bounced: { increment: 1 } },
+            });
+
+            matchedBounces++;
+            details.push({
+              from: fromAddr,
+              subject,
+              leadMatched: true,
+              date: msgDate,
+              isBounce: true,
+              bouncedEmail: lead.email,
+            });
+            continue;
+          }
+
+          // 3: Out-of-Office / Away Message
+          if (classification.isAwayMessage) {
+            await prisma.activity
+              .create({
+                data: {
+                  leadId: lead.id,
+                  type: "email",
+                  message: `📩 Received Out-of-Office / Away auto-reply: "${subject}". Preserved in sequence; not treated as reply or hot lead.`,
+                },
+              })
+              .catch(() => undefined);
+
+            details.push({
+              from: fromAddr,
+              subject,
+              leadMatched: true,
+              date: msgDate,
+            });
+            continue;
+          }
+
+          // 4: Check if meaningful human response
+          if (!classification.isMeaningfulReply) {
+            if (classification.category === "IGNORE" && /unsubscribe|opt[- ]?out/i.test(fullBody)) {
+              await suppressLead(lead.id, lead.email, SuppressionReason.UNSUBSCRIBE, "Lead requested unsubscribe");
+              await prisma.activity
+                .create({
+                  data: {
+                    leadId: lead.id,
+                    type: "email",
+                    message: `Prospect requested unsubscribe: "${subject}". Suppressed from future outreach.`,
+                  },
+                })
+                .catch(() => undefined);
+            } else {
+              await prisma.activity
+                .create({
+                  data: {
+                    leadId: lead.id,
+                    type: "email",
+                    message: `Inbound notification received: "${subject}" (non-actionable; not classified as reply).`,
+                  },
+                })
+                .catch(() => undefined);
+            }
+
+            details.push({
+              from: fromAddr,
+              subject,
+              leadMatched: true,
+              date: msgDate,
+            });
+            continue;
+          }
+
+          // 5: Meaningful reply (and HOT lead if showed interest)
           const res = await handleReply({
             fromEmail: fromAddr,
             messageId,
             snippet,
             subject,
             body: fullBody,
+            isHotLead: classification.isHotLead,
+            intentReason: classification.reason,
           });
 
           if (res.matched && !res.alreadyProcessed) {

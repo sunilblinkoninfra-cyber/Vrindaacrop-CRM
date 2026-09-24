@@ -356,6 +356,7 @@ export function TriggerOutreachModal({
     const daysCount = sortedKeys.length;
     const totalLeads = Math.max(1, limit);
     const leadsPerDay = Math.ceil(totalLeads / daysCount);
+    const estimatedMinutesPerDay = Math.ceil((leadsPerDay * immediateDelay) / 60);
 
     const spanDays = Math.max(
       1,
@@ -368,8 +369,10 @@ export function TriggerOutreachModal({
       firstDate,
       lastDate,
       spanDays,
+      estimatedMinutesPerDay,
+      spacingSeconds: immediateDelay,
     };
-  }, [selectedDateKeys, dispatchTime, limit]);
+  }, [selectedDateKeys, dispatchTime, limit, immediateDelay]);
 
   if (!isOpen) return null;
 
@@ -402,6 +405,7 @@ export function TriggerOutreachModal({
             campaignId,
             selectedDatesISO,
             limit: finalLimit,
+            delaySeconds: immediateDelay,
             activateIfDraft: true,
           });
 
@@ -847,37 +851,41 @@ export function TriggerOutreachModal({
             </div>
           </div>
 
-          {/* Immediate Mode Options */}
-          {mode === "immediate" && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 space-y-2 text-xs">
+          {/* Intra-Batch Spacing Delay (Applicable to both Immediate & Calendar Schedule) */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 space-y-2 text-xs">
+            <div className="flex items-center justify-between">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-700 block">
                 Intra-Batch Spacing Delay
               </label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { label: "0s Instant", value: 0 },
-                  { label: "15s Spacing", value: 15 },
-                  { label: "30s Warmup", value: 30 },
-                ].map((item) => (
-                  <button
-                    key={item.value}
-                    type="button"
-                    onClick={() => setImmediateDelay(item.value)}
-                    className={`rounded-lg border p-2 text-xs transition-all ${
-                      immediateDelay === item.value
-                        ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-800 ring-1 ring-emerald-600"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[11px] text-slate-500">
-                Spacing between emails avoids triggering rate limits with email providers.
-              </p>
+              <span className="text-[11px] font-medium text-slate-500">
+                {mode === "scheduled" ? "Applied to each day's batch" : "Applied to immediate dispatch"}
+              </span>
             </div>
-          )}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { label: "0s Instant", value: 0 },
+                { label: "15s Spacing", value: 15 },
+                { label: "30s Warmup", value: 30 },
+                { label: "60s Gentle", value: 60 },
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setImmediateDelay(item.value)}
+                  className={`rounded-lg border p-2 text-xs transition-all ${
+                    immediateDelay === item.value
+                      ? "border-emerald-600 bg-emerald-50 font-bold text-emerald-800 ring-1 ring-emerald-600"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Spacing between individual emails avoids triggering provider rate limits and guarantees smooth mailbox warmup.
+            </p>
+          </div>
 
           {/* Interactive Live Schedule Projection Card */}
           {mode === "scheduled" && calendarProjection && (
@@ -904,10 +912,13 @@ export function TriggerOutreachModal({
 
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Daily Pacing
+                    Daily Pacing & Timing
                   </span>
                   <div className="font-semibold text-blue-700">
-                    ~{calendarProjection.leadsPerDay} emails per selected day
+                    ~{calendarProjection.leadsPerDay} emails/day
+                    {calendarProjection.spacingSeconds > 0
+                      ? ` (${calendarProjection.spacingSeconds}s pacing, ~${calendarProjection.estimatedMinutesPerDay}m)`
+                      : " (instant)"}
                   </div>
                 </div>
 

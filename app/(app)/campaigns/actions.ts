@@ -245,12 +245,13 @@ export async function scheduleCampaignOutreach(
   if (validSelectedDates.length > 0) {
     const chunkCount = validSelectedDates.length;
     const leadsPerDay = Math.max(1, Math.ceil(activeEnrollments.length / chunkCount));
+    const spacingSec = typeof delaySeconds === "number" && delaySeconds >= 0 ? delaySeconds : 15;
 
     for (let i = 0; i < activeEnrollments.length; i++) {
       const dateIdx = Math.min(Math.floor(i / leadsPerDay), chunkCount - 1);
       const targetDay = validSelectedDates[dateIdx];
-      // Stagger intra-day by 20s so emails on the same day don't collide
-      const intraDayOffsetMs = (i % leadsPerDay) * 20 * 1000;
+      // Stagger intra-day by selected spacing delay so emails on the same day don't collide
+      const intraDayOffsetMs = (i % leadsPerDay) * spacingSec * 1000;
       const nextSendAt = new Date(targetDay.getTime() + intraDayOffsetMs);
 
       await prisma.enrollment.update({
@@ -289,6 +290,7 @@ export async function scheduleCampaignOutreach(
             firstSendAt: firstDate.toISOString(),
             lastSendAt: lastDate.toISOString(),
             leadsPerDay,
+            delaySeconds: spacingSec,
             totalScheduled: activeEnrollments.length,
             scheduledAt: now.toISOString(),
           },
@@ -309,7 +311,7 @@ export async function scheduleCampaignOutreach(
           const { runSender } = await import("@/lib/outreach/sender");
           await runSender({
             limit: leadsPerDay,
-            delaySeconds: 15,
+            delaySeconds: spacingSec,
             campaignId,
           });
         } catch (err) {

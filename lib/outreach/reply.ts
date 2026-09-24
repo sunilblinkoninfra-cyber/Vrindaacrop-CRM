@@ -22,11 +22,14 @@ export async function handleReply(args: {
   snippet?: string;
   subject?: string;
   body?: string;
+  isHotLead?: boolean;
+  intentReason?: string;
 }) {
   const match = await findLeadForEvent(args.messageId, args.fromEmail);
   if (!match) return { matched: false };
 
   const { leadId, enrollmentId } = match;
+  const isHot = Boolean(args.isHotLead);
 
   // Deduplication check: if messageId exists, check if already recorded
   if (args.messageId) {
@@ -50,7 +53,11 @@ export async function handleReply(args: {
         enrollmentId: enrollmentId ?? null,
         type: EmailEventType.REPLIED,
         messageId: args.messageId ?? null,
-        metadata: args.snippet ? ({ snippet: args.snippet } as Prisma.InputJsonValue) : undefined,
+        metadata: {
+          snippet: args.snippet,
+          isHotLead: isHot,
+          reason: args.intentReason,
+        } as Prisma.InputJsonValue,
       },
     });
 
@@ -76,10 +83,20 @@ export async function handleReply(args: {
 
     await tx.lead.update({
       where: { id: leadId },
-      data: { hot: true, stage: lead.stage === "WON" || lead.stage === "LOST" ? lead.stage : "REPLIED" },
+      data: {
+        hot: isHot,
+        stage: lead.stage === "WON" || lead.stage === "LOST" ? lead.stage : "REPLIED",
+      },
     });
+
     await tx.activity.create({
-      data: { leadId, type: "reply", message: "Lead replied — marked Hot, sequence paused" },
+      data: {
+        leadId,
+        type: "reply",
+        message: isHot
+          ? `🔥 Hot Lead replied: "${args.subject || "Inquiry"}" — showed interest to know more / requested details. Sequence paused.`
+          : `Lead replied: "${args.subject || "Reply"}" — sequence paused.`,
+      },
     });
 
     return lead;
@@ -87,9 +104,10 @@ export async function handleReply(args: {
 
   if (!leadForNotify) return { matched: false };
 
-  // Fire notification AFTER the transaction commits — network calls should not
-  // hold a DB transaction open.
-  await notifyOwnerOfReply(leadForNotify, args.snippet ?? "");
+  // Only notify owner as HOT lead alert if isHot is true
+  if (isHot) {
+    await notifyOwnerOfReply(leadForNotify, args.snippet ?? "");
+  }
 
   // Generate AI Proposed Draft & trigger WhatsApp Human-in-the-Loop Loop
   const fullBody = args.body || args.snippet || "Client replied to outreach email.";
