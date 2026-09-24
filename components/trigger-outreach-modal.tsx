@@ -390,7 +390,11 @@ export function TriggerOutreachModal({
           const minute = isNaN(mm) ? 30 : Math.min(59, Math.max(0, mm));
           const selectedDatesISO = selectedDateKeys.map((key) => {
             const { year, month, day } = parseDateKey(key);
-            const dt = new Date(year, month, day, hour, minute, 0, 0);
+            // Calculate exact UTC timestamp corresponding to hour:minute in Asia/Kolkata (IST = UTC+05:30)
+            const istOffsetMinutes = 330;
+            const targetMinutesFromMidnight = hour * 60 + minute;
+            const utcMinutesFromMidnight = targetMinutesFromMidnight - istOffsetMinutes;
+            const dt = new Date(Date.UTC(year, month, day, 0, 0, 0, 0) + utcMinutesFromMidnight * 60 * 1000);
             return dt.toISOString();
           });
 

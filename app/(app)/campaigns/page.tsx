@@ -31,7 +31,12 @@ export default async function CampaignsPage() {
     campaignsRaw.map(async (c) => {
       const [nextEnrollment, activeValidCount, activeTotalCount, pausedCount] = await Promise.all([
         prisma.enrollment.findFirst({
-          where: { campaignId: c.id, state: "ACTIVE", nextSendAt: { not: null } },
+          where: {
+            campaignId: c.id,
+            state: "ACTIVE",
+            nextSendAt: { not: null },
+            lead: { isSuppressed: false, validationStatus: "VALID" },
+          },
           orderBy: { nextSendAt: "asc" },
           select: { nextSendAt: true },
         }),
@@ -53,12 +58,20 @@ export default async function CampaignsPage() {
       const plan = c.sendingPlan || defaultPlan;
       const scheduleMeta = ((c.segment as Record<string, any>) || {})?._schedule || null;
 
+      let nextScheduledAt: Date | string | null = nextEnrollment?.nextSendAt ?? null;
+      if (scheduleMeta?.firstSendAt) {
+        const metaDate = new Date(scheduleMeta.firstSendAt);
+        if (!isNaN(metaDate.getTime()) && metaDate > new Date()) {
+          nextScheduledAt = scheduleMeta.firstSendAt;
+        }
+      }
+
       return {
         id: c.id,
         name: c.name,
         status: c.status,
         createdAt: c.createdAt,
-        nextScheduledAt: nextEnrollment?.nextSendAt ?? null,
+        nextScheduledAt,
         activeValidCount,
         activeTotalCount,
         pausedCount,

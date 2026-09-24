@@ -49,12 +49,22 @@ export default async function CampaignDetailPage({ params }: { params: { id: str
     upcomingEnrollments,
   ] = await Promise.all([
     prisma.enrollment.findFirst({
-      where: { campaignId: campaign.id, state: "ACTIVE", nextSendAt: { not: null } },
+      where: {
+        campaignId: campaign.id,
+        state: "ACTIVE",
+        nextSendAt: { not: null },
+        lead: { isSuppressed: false, validationStatus: "VALID" },
+      },
       orderBy: { nextSendAt: "asc" },
       select: { nextSendAt: true },
     }),
     prisma.enrollment.findFirst({
-      where: { campaignId: campaign.id, state: "ACTIVE", nextSendAt: { not: null } },
+      where: {
+        campaignId: campaign.id,
+        state: "ACTIVE",
+        nextSendAt: { not: null },
+        lead: { isSuppressed: false, validationStatus: "VALID" },
+      },
       orderBy: { nextSendAt: "desc" },
       select: { nextSendAt: true },
     }),
@@ -75,7 +85,12 @@ export default async function CampaignDetailPage({ params }: { params: { id: str
       where: { campaignId: campaign.id, state: "COMPLETED" },
     }),
     prisma.enrollment.findMany({
-      where: { campaignId: campaign.id, state: "ACTIVE", nextSendAt: { not: null } },
+      where: {
+        campaignId: campaign.id,
+        state: "ACTIVE",
+        nextSendAt: { not: null },
+        lead: { isSuppressed: false, validationStatus: "VALID" },
+      },
       select: { nextSendAt: true },
       orderBy: { nextSendAt: "asc" },
       take: 500,
@@ -107,8 +122,16 @@ export default async function CampaignDetailPage({ params }: { params: { id: str
 
   const scheduleMeta = ((campaign.segment as Record<string, any>) || {})?._schedule || null;
 
+  let nextScheduledAt: string | null = nextEnrollment?.nextSendAt ? nextEnrollment.nextSendAt.toISOString() : null;
+  if (scheduleMeta?.firstSendAt) {
+    const metaDate = new Date(scheduleMeta.firstSendAt);
+    if (!isNaN(metaDate.getTime()) && metaDate > new Date()) {
+      nextScheduledAt = metaDate.toISOString();
+    }
+  }
+
   const scheduleDetails = {
-    nextScheduledAt: nextEnrollment?.nextSendAt ? nextEnrollment.nextSendAt.toISOString() : null,
+    nextScheduledAt,
     lastScheduledAt: latestEnrollment?.nextSendAt ? latestEnrollment.nextSendAt.toISOString() : null,
     activeValidCount,
     activeTotalCount,

@@ -262,6 +262,19 @@ export async function scheduleCampaignOutreach(
     const firstDate = validSelectedDates[0];
     const lastDate = validSelectedDates[validSelectedDates.length - 1];
 
+    // Ensure all other active enrollments in this campaign are queued after this scheduled batch
+    await prisma.enrollment.updateMany({
+      where: {
+        campaignId,
+        state: "ACTIVE",
+        id: { notIn: activeEnrollments.map((e) => e.id) },
+        nextSendAt: { lte: lastDate },
+      },
+      data: {
+        nextSendAt: new Date(lastDate.getTime() + 24 * 60 * 60 * 1000),
+      },
+    });
+
     // Save schedule metadata on campaign for display
     const campData = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { segment: true } });
     const existingSegment = (campData?.segment as Record<string, any>) || {};
@@ -336,6 +349,19 @@ export async function scheduleCampaignOutreach(
 
   const firstSendDate = new Date(baseTime);
   const lastSendDate = new Date(baseTime + (activeEnrollments.length - 1) * validDelay * 1000);
+
+  // Ensure all other active enrollments in this campaign are queued after this batch
+  await prisma.enrollment.updateMany({
+    where: {
+      campaignId,
+      state: "ACTIVE",
+      id: { notIn: activeEnrollments.map((e) => e.id) },
+      nextSendAt: { lte: lastSendDate },
+    },
+    data: {
+      nextSendAt: new Date(lastSendDate.getTime() + 24 * 60 * 60 * 1000),
+    },
+  });
 
   // Save schedule metadata on campaign for display
   const campData = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { segment: true } });
