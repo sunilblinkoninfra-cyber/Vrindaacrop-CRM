@@ -85,15 +85,15 @@ async function tickReplies() {
   const started = new Date();
   try {
     const r = await syncImapReplies({ sinceDays: 7, maxMessages: 50 });
-    if (r.ok && r.matchedReplies > 0) {
-      console.log(`[replies] checked=${r.checked} matchedReplies=${r.matchedReplies}`);
+    if (r.ok && (r.matchedReplies > 0 || r.matchedBounces > 0)) {
+      console.log(`[replies] checked=${r.checked} matchedReplies=${r.matchedReplies} matchedBounces=${r.matchedBounces}`);
       await prisma.jobRun.create({
         data: {
           job: "replies",
           startedAt: started,
           finishedAt: new Date(),
           ok: true,
-          detail: `checked=${r.checked} matchedReplies=${r.matchedReplies}`,
+          detail: `checked=${r.checked} matchedReplies=${r.matchedReplies} matchedBounces=${r.matchedBounces}`,
         },
       });
     }

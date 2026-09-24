@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { pickBestMx, probeMailbox, isCatchAllDomain } from "@/lib/import/smtp-probe";
-import { ValidationStatus } from "@prisma/client";
+import { normalizeEmail } from "@/lib/utils";
+import { pauseEnrollmentsForLead } from "@/lib/outreach/enroll";
+import { ValidationStatus, SuppressionReason } from "@prisma/client";
 
 const BATCH_SIZE = 25; // SMTP probes are network round-trips; keep small vs runEnrichment's batch size.
 
@@ -20,14 +22,39 @@ export async function revalidateOneLead(lead: RevalidateLead): Promise<{ changed
   const now = new Date();
 
   if (!domain) {
-    await prisma.lead.update({ where: { id: lead.id }, data: { smtpCheckedAt: now } });
-    return { changed: false };
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        validationStatus: ValidationStatus.INVALID,
+        validationReason: "Malformed email (missing domain)",
+        validationCheckedAt: now,
+        smtpCheckedAt: now,
+        isSuppressed: true,
+      },
+    });
+    await pauseEnrollmentsForLead(lead.id, "invalid_email");
+    return { changed: true };
   }
 
   const mxHost = await pickBestMx(domain);
   if (!mxHost) {
-    await prisma.lead.update({ where: { id: lead.id }, data: { smtpCheckedAt: now } });
-    return { changed: false };
+    await prisma.suppression.upsert({
+      where: { emailNormalized: normalizeEmail(lead.email) },
+      update: { reason: SuppressionReason.HARD_BOUNCE },
+      create: { emailNormalized: normalizeEmail(lead.email), reason: SuppressionReason.HARD_BOUNCE },
+    });
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        validationStatus: ValidationStatus.INVALID,
+        validationReason: "No active MX records found for domain",
+        validationCheckedAt: now,
+        smtpCheckedAt: now,
+        isSuppressed: true,
+      },
+    });
+    await pauseEnrollmentsForLead(lead.id, "invalid_email");
+    return { changed: true };
   }
 
   const catchAll = await isCatchAllDomain(domain, mxHost);
@@ -47,6 +74,11 @@ export async function revalidateOneLead(lead: RevalidateLead): Promise<{ changed
   const probe = await probeMailbox(lead.email, mxHost);
 
   if (probe.outcome === "confirmed-invalid") {
+    await prisma.suppression.upsert({
+      where: { emailNormalized: normalizeEmail(lead.email) },
+      update: { reason: SuppressionReason.HARD_BOUNCE },
+      create: { emailNormalized: normalizeEmail(lead.email), reason: SuppressionReason.HARD_BOUNCE },
+    });
     await prisma.lead.update({
       where: { id: lead.id },
       data: {
@@ -54,8 +86,10 @@ export async function revalidateOneLead(lead: RevalidateLead): Promise<{ changed
         validationReason: probe.reason,
         validationCheckedAt: now,
         smtpCheckedAt: now,
+        isSuppressed: true,
       },
     });
+    await pauseEnrollmentsForLead(lead.id, "invalid_email");
     return { changed: true };
   }
 

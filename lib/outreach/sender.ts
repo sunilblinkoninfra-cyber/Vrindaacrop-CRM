@@ -1,10 +1,13 @@
-import { EmailEventType } from "@prisma/client";
+import { EmailEventType, SuppressionReason, ValidationStatus } from "@prisma/client";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/ses";
 import { applyTokens, pickSubject, injectTracking } from "@/lib/email/render";
 import { generateEmail } from "@/lib/ai/generate";
 import { resolveTemplateForLead } from "@/lib/templates-seed";
 import { prisma } from "@/lib/prisma";
+import { normalizeEmail } from "@/lib/utils";
+import { pauseEnrollmentsForLead } from "@/lib/outreach/enroll";
+import { pickBestMx, probeMailbox, isCatchAllDomain } from "@/lib/import/smtp-probe";
 import {
   claimNextEnrollment,
   ensureDefaultSendingPlan,
@@ -121,6 +124,106 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
       await releaseClaim({ claim, state: "PAUSED", reason: "invalid_email" });
       skipped++;
       continue;
+    }
+
+    // Pre-flight deliverability gate: if mailbox was not yet probed via SMTP, verify existence now
+    if (!lead.smtpCheckedAt) {
+      const domain = lead.email.split("@")[1]?.toLowerCase();
+      const now = new Date();
+
+      if (!domain) {
+        await prisma.suppression.upsert({
+          where: { emailNormalized: normalizeEmail(lead.email) },
+          update: { reason: SuppressionReason.HARD_BOUNCE },
+          create: { emailNormalized: normalizeEmail(lead.email), reason: SuppressionReason.HARD_BOUNCE },
+        });
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data: {
+            validationStatus: ValidationStatus.INVALID,
+            validationReason: "Malformed email (missing domain)",
+            isSuppressed: true,
+            smtpCheckedAt: now,
+          },
+        });
+        await pauseEnrollmentsForLead(lead.id, "invalid_email");
+        await releaseClaim({ claim, state: "PAUSED", reason: "invalid_email" });
+        skipped++;
+        continue;
+      }
+
+      const mxHost = await pickBestMx(domain);
+      if (!mxHost) {
+        await prisma.suppression.upsert({
+          where: { emailNormalized: normalizeEmail(lead.email) },
+          update: { reason: SuppressionReason.HARD_BOUNCE },
+          create: { emailNormalized: normalizeEmail(lead.email), reason: SuppressionReason.HARD_BOUNCE },
+        });
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data: {
+            validationStatus: ValidationStatus.INVALID,
+            validationReason: "No active MX records found for domain",
+            isSuppressed: true,
+            smtpCheckedAt: now,
+          },
+        });
+        await pauseEnrollmentsForLead(lead.id, "invalid_email");
+        await releaseClaim({ claim, state: "PAUSED", reason: "invalid_email" });
+        skipped++;
+        continue;
+      }
+
+      const catchAll = await isCatchAllDomain(domain, mxHost);
+      if (catchAll) {
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data: {
+            validationStatus: ValidationStatus.CATCH_ALL,
+            validationReason: "SMTP: catch-all domain — cannot confirm mailbox",
+            smtpCheckedAt: now,
+          },
+        });
+      } else {
+        const probe = await probeMailbox(lead.email, mxHost);
+        if (probe.outcome === "confirmed-invalid") {
+          await prisma.suppression.upsert({
+            where: { emailNormalized: normalizeEmail(lead.email) },
+            update: { reason: SuppressionReason.HARD_BOUNCE },
+            create: { emailNormalized: normalizeEmail(lead.email), reason: SuppressionReason.HARD_BOUNCE },
+          });
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: {
+              validationStatus: ValidationStatus.INVALID,
+              validationReason: probe.reason,
+              isSuppressed: true,
+              smtpCheckedAt: now,
+            },
+          });
+          await pauseEnrollmentsForLead(lead.id, "invalid_email");
+          await releaseClaim({ claim, state: "PAUSED", reason: "invalid_email" });
+          skipped++;
+          continue;
+        }
+
+        if (probe.outcome === "confirmed-valid") {
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: {
+              validationStatus: ValidationStatus.VALID,
+              validationReason: probe.reason,
+              smtpCheckedAt: now,
+            },
+          });
+        } else {
+          // Probe inconclusive (port 25 timeout/block) — stamp smtpCheckedAt to avoid repeated re-probes
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: { smtpCheckedAt: now },
+          });
+        }
+      }
     }
     if (enrollment.campaign.status !== "ACTIVE") {
       await releaseClaim({ claim, state: "PAUSED", reason: "campaign_inactive" });

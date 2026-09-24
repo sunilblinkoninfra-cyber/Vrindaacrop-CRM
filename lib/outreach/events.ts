@@ -75,7 +75,7 @@ export async function recordEvent(args: {
  * complaint means "don't email me" (consent), not "this address doesn't
  * exist" (deliverability) — it leaves validationStatus untouched.
  */
-export async function suppressLead(leadId: string, email: string, reason: SuppressionReason) {
+export async function suppressLead(leadId: string, email: string, reason: SuppressionReason, validationReason?: string) {
   const emailNormalized = normalizeEmail(email);
   await prisma.suppression.upsert({
     where: { emailNormalized },
@@ -89,7 +89,7 @@ export async function suppressLead(leadId: string, email: string, reason: Suppre
       ...(reason === SuppressionReason.HARD_BOUNCE
         ? {
             validationStatus: ValidationStatus.INVALID,
-            validationReason: "SES hard bounce",
+            validationReason: validationReason ?? "Hard bounce (NDR)",
             validationCheckedAt: new Date(),
           }
         : {}),

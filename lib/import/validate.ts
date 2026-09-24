@@ -322,7 +322,7 @@ export async function validateEmail(
     return {
       check: "valid",
       status: ValidationStatus.VALID,
-      reason: null,
+      reason: "Domain MX verified (mailbox unprobed)",
       tags,
       isCorporate,
       isFreeWebmail,

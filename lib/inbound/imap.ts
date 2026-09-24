@@ -4,16 +4,22 @@ import { env, isImapConfigured } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { normalizeEmail } from "@/lib/utils";
 import { handleReply } from "@/lib/outreach/reply";
+import { recordEvent, suppressLead } from "@/lib/outreach/events";
+import { localDate } from "@/lib/outreach/scheduler";
+import { EmailEventType, SuppressionReason, ValidationStatus } from "@prisma/client";
 
 export type ImapSyncResult = {
   ok: boolean;
   checked: number;
   matchedReplies: number;
+  matchedBounces: number;
   details: Array<{
     from: string;
     subject: string;
     leadMatched: boolean;
     date: Date;
+    isBounce?: boolean;
+    bouncedEmail?: string;
   }>;
   error?: string;
 };
@@ -33,6 +39,7 @@ export async function syncImapReplies(options?: {
       ok: true,
       checked: 0,
       matchedReplies: 0,
+      matchedBounces: 0,
       details: [],
     };
   }
@@ -42,6 +49,7 @@ export async function syncImapReplies(options?: {
       ok: false,
       checked: 0,
       matchedReplies: 0,
+      matchedBounces: 0,
       details: [],
       error: "IMAP is not configured (missing IMAP/SMTP credentials in .env).",
     };
@@ -67,6 +75,7 @@ export async function syncImapReplies(options?: {
   const details: ImapSyncResult["details"] = [];
   let checked = 0;
   let matchedReplies = 0;
+  let matchedBounces = 0;
 
   try {
     await client.connect();
@@ -113,6 +122,160 @@ export async function syncImapReplies(options?: {
         });
 
         if (!lead) {
+          // Check if this message is a Non-Delivery Report (Bounce)
+          const isBounce =
+            fromAddr.includes("mailer-daemon") ||
+            fromAddr.includes("postmaster") ||
+            /delivery status notification|failure|undeliver|returned mail|message blocked|rejected/i.test(subject);
+
+          if (isBounce && msg.source) {
+            try {
+              const parsed = await simpleParser(msg.source);
+              const fullText = ((parsed.text || "") + " " + (parsed.html || "") + " " + subject).trim();
+
+              // 1. Try to extract from bounce headers
+              let failedRecipient: string | null = null;
+              const finalRecipient =
+                parsed.headers.get("final-recipient")?.toString() ||
+                parsed.headers.get("original-recipient")?.toString() ||
+                parsed.headers.get("x-failed-recipients")?.toString();
+
+              if (finalRecipient) {
+                const m = finalRecipient.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                if (m) failedRecipient = m[0].toLowerCase();
+              }
+
+              // 2. Explicit patterns in text
+              if (!failedRecipient) {
+                const m1 = fullText.match(
+                  /(?:wasn't delivered to|was not delivered to|message to|failed to deliver to|recipient)\s+<*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>*/i
+                );
+                if (m1) {
+                  const candidate = m1[1].toLowerCase();
+                  if (!candidate.includes("vrindaacorp.com") && !candidate.includes("googlemail.com")) {
+                    failedRecipient = candidate;
+                  }
+                }
+              }
+
+              if (!failedRecipient) {
+                const m2 = fullText.match(
+                  /<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>:\s*(?:user unknown|recipient address rejected|address rejected|does not exist)/i
+                );
+                if (m2) {
+                  const candidate = m2[1].toLowerCase();
+                  if (!candidate.includes("vrindaacorp.com")) failedRecipient = candidate;
+                }
+              }
+
+              // 3. Extract diagnostic failure reason if present
+              let bounceReason = "Delivery failed / Address not found (NDR)";
+              const reasonMatch = fullText.match(
+                /(?:The response (?:from the remote server )?was:\s*)?(55\d[^\r\n]+|The email account that you tried to reach[^\r\n]+|Address rejected[^\r\n]+|Recipient address rejected[^\r\n]+|User unknown[^\r\n]+)/i
+              );
+              if (reasonMatch) {
+                bounceReason = reasonMatch[1].trim().slice(0, 200);
+              }
+
+              let bouncedLead = null;
+              if (failedRecipient) {
+                bouncedLead = await prisma.lead.findFirst({
+                  where: { emailNormalized: normalizeEmail(failedRecipient) },
+                  select: { id: true, email: true, stage: true },
+                });
+              }
+
+              // 4. Candidate fallback search across all mentioned emails
+              if (!bouncedLead) {
+                const allMatches = fullText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+                const candidates = Array.from(
+                  new Set(allMatches.map((m) => m.toLowerCase().replace(/^[<"']|[>"']$/g, "")))
+                ).filter(
+                  (e) =>
+                    !e.includes("vrindaacorp.com") &&
+                    !e.includes("googlemail.com") &&
+                    !e.includes("mailer-daemon") &&
+                    !e.includes("postmaster")
+                );
+
+                if (candidates.length > 0) {
+                  bouncedLead = await prisma.lead.findFirst({
+                    where: { emailNormalized: { in: candidates.map(normalizeEmail) } },
+                    select: { id: true, email: true, stage: true },
+                  });
+                }
+              }
+
+              if (bouncedLead) {
+                const existingBounce = await prisma.emailEvent.findFirst({
+                  where: {
+                    leadId: bouncedLead.id,
+                    type: EmailEventType.BOUNCED,
+                    ...(messageId ? { messageId } : {}),
+                  },
+                });
+
+                if (!existingBounce) {
+                  const lastSent = await prisma.emailEvent.findFirst({
+                    where: { leadId: bouncedLead.id, type: EmailEventType.SENT },
+                    orderBy: { createdAt: "desc" },
+                    select: { enrollmentId: true },
+                  });
+
+                  await recordEvent({
+                    leadId: bouncedLead.id,
+                    enrollmentId: lastSent?.enrollmentId ?? null,
+                    type: EmailEventType.BOUNCED,
+                    messageId: messageId ?? undefined,
+                    metadata: {
+                      reason: bounceReason,
+                      source: "imap_ndr",
+                      subject,
+                      date: msgDate,
+                    },
+                  });
+
+                  await suppressLead(
+                    bouncedLead.id,
+                    bouncedLead.email,
+                    SuppressionReason.HARD_BOUNCE,
+                    `Bounced (NDR): ${bounceReason}`
+                  );
+
+                  await prisma.activity
+                    .create({
+                      data: {
+                        leadId: bouncedLead.id,
+                        type: "email",
+                        message: `Outreach email bounced (NDR): ${bounceReason}`,
+                      },
+                    })
+                    .catch(() => undefined);
+
+                  const today = localDate(new Date(), env.sending.timezone);
+                  await prisma.sendingDay.updateMany({
+                    where: { localDate: today },
+                    data: { bounced: { increment: 1 } },
+                  });
+
+                  matchedBounces++;
+                }
+
+                details.push({
+                  from: fromAddr,
+                  subject,
+                  leadMatched: true,
+                  date: msgDate,
+                  isBounce: true,
+                  bouncedEmail: bouncedLead.email,
+                });
+                continue;
+              }
+            } catch (err) {
+              console.error("[IMAP Bounce Process Error]:", err);
+            }
+          }
+
           details.push({
             from: fromAddr,
             subject,
@@ -176,6 +339,7 @@ export async function syncImapReplies(options?: {
       ok: true,
       checked,
       matchedReplies,
+      matchedBounces,
       details,
     };
   } catch (error: any) {
@@ -189,6 +353,7 @@ export async function syncImapReplies(options?: {
       ok: false,
       checked,
       matchedReplies,
+      matchedBounces,
       details,
       error: error?.message || String(error),
     };

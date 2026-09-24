@@ -9,7 +9,7 @@ export type SmtpProbeResult =
   | { outcome: "unknown"; reason: string };
 
 const CATCH_ALL_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const SOCKET_TIMEOUT_MS = 5000;
+const SOCKET_TIMEOUT_MS = 8000;
 
 /** Resolves the lowest-priority (best) MX host for a domain, or null if none. */
 export async function pickBestMx(domain: string): Promise<string | null> {
@@ -57,8 +57,23 @@ export async function probeMailbox(email: string, mxHost: string): Promise<SmtpP
 
     socket.on("data", (chunk) => {
       buffer += chunk.toString("utf8");
-      if (!buffer.endsWith("\r\n")) return; // wait for a full line
-      const code = parseInt(buffer.slice(0, 3), 10);
+
+      // RFC 5321: multiline responses end with \r\n and the last line starts with \d{3}\s
+      const lines = buffer.split("\r\n");
+      let lastLine = "";
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i].length > 0) {
+          lastLine = lines[i];
+          break;
+        }
+      }
+      if (!lastLine) return;
+
+      const match = lastLine.match(/^(\d{3})([ -])/);
+      if (!match) return; // not an SMTP status line yet
+      if (match[2] === "-") return; // continuation line, wait for final line
+
+      const code = parseInt(match[1], 10);
       buffer = "";
 
       if (stage === "greet") {
@@ -68,9 +83,14 @@ export async function probeMailbox(email: string, mxHost: string): Promise<SmtpP
         return;
       }
       if (stage === "helo") {
-        if (code < 200 || code >= 300) return finish({ outcome: "unknown", reason: `EHLO rejected (${code})` });
+        if (code < 200 || code >= 300) {
+          // If EHLO rejected, try plain HELO fallback
+          stage = "mail";
+          socket.write(`HELO ${ownDomain}\r\n`);
+          return;
+        }
         stage = "mail";
-        socket.write(`MAIL FROM:<probe@${ownDomain}>\r\n`);
+        socket.write(`MAIL FROM:<sales@${ownDomain}>\r\n`);
         return;
       }
       if (stage === "mail") {
@@ -84,7 +104,7 @@ export async function probeMailbox(email: string, mxHost: string): Promise<SmtpP
         if (code === 250 || code === 251) {
           return finish({ outcome: "confirmed-valid", reason: `SMTP: mailbox confirmed (${code})` });
         }
-        if (code === 550 || code === 551 || code === 553) {
+        if (code === 550 || code === 551 || code === 553 || code === 554) {
           return finish({ outcome: "confirmed-invalid", reason: `SMTP: mailbox does not exist (${code})` });
         }
         return finish({ outcome: "unknown", reason: `SMTP: inconclusive RCPT response (${code})` });
