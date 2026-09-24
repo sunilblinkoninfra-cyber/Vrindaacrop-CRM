@@ -86,10 +86,17 @@ export async function getOwnerStrategicMemory(): Promise<StrategicMemory> {
     if (record && record.payload) {
       const parsed = record.payload as any;
       if (Array.isArray(parsed.directives) && parsed.directives.length > 0) {
+        const existingIds = new Set(parsed.directives.map((d: any) => d.id));
+        const mergedDirectives = [...parsed.directives];
+        for (const def of DEFAULT_DIRECTIVES) {
+          if (!existingIds.has(def.id)) {
+            mergedDirectives.push(def);
+          }
+        }
         return {
           version: parsed.version || 1,
           lastUpdated: parsed.lastUpdated || record.createdAt.toISOString(),
-          directives: parsed.directives,
+          directives: mergedDirectives,
         };
       }
     }
