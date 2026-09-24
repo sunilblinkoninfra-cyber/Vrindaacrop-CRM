@@ -1,6 +1,7 @@
 import { chatJSON, isAiConfigured } from "@/lib/ai/client";
 import { COMPANY_CONTEXT } from "@/lib/ai/generate";
 import { getIndustryHook } from "@/lib/email/render";
+import { CALENDLY_BOOKING_URL } from "@/lib/constants";
 
 export type GeneratedTemplateResult = {
   name: string;
@@ -43,6 +44,7 @@ Rules:
 - "html": clean HTML body using only <p>, <a>, <strong>, and <ul>/<li> tags.
 - Mention VrindaaCorp's core facility management, housekeeping, technical maintenance, and corporate catering solutions.
 - Keep the body concise (90-130 words), polite, and tailored. One clear call-to-action for a brief 10-minute discovery call.
+- MANDATORY BOOK-A-CALL LINK: If adding an option or call-to-action to book a call or schedule a discussion, you must strictly use https://calendly.com/vrindaacorp-sales/30min (e.g. <a href="https://calendly.com/vrindaacorp-sales/30min">Book a 30-min call</a>) and NOTHING ELSE. Never use any other link or placeholder.
 - Do NOT include duplicate subject lines, signature placeholders, or unsubscribe text inside bodyHtml.`;
 
       const userPrompt = sectorLabel
@@ -154,6 +156,7 @@ CRITICAL RULES FOR REVISING THE TEMPLATE:
   - "subjectB": A/B test variant (under 60 characters).
 - Produce clean HTML body in "html" using only <p>, <a>, <strong>, <em>, and <ul>/<li> tags.
 - Keep the body concise (85-130 words), professional, consultative, and action-oriented. Include one clear CTA for a brief 10-minute call or meeting.
+- MANDATORY BOOK-A-CALL LINK: If adding an option or call-to-action to book a call or schedule a discussion, you must strictly use https://calendly.com/vrindaacorp-sales/30min (e.g. <a href="https://calendly.com/vrindaacorp-sales/30min">Book a 30-min call</a>) and NOTHING ELSE. Never use any other link or placeholder.
 - In "changesSummary", provide a crisp 1-2 sentence description explaining exactly what changes were made in response to the user's suggestion.`;
 
       const user = `CURRENT EMAIL TEMPLATE:
@@ -236,7 +239,7 @@ function fallbackTemplate(
         html: `<p>Hi {{firstName}},</p>
 <p>I wanted to briefly follow up on my earlier note regarding facility management and catering support for {{company}} in {{city}}.</p>
 <p>At <strong>VrindaaCorp</strong>, we specialize in ${hook}. We help organizations like yours maintain seamless day-to-day operations while reducing vendor overhead.</p>
-<p>Would you have 5 to 10 minutes for a brief introductory call this week?</p>
+<p>Would you have 5 to 10 minutes for a brief introductory call this week? You can also <a href="${CALENDLY_BOOKING_URL}">book a 30-min call directly</a>.</p>
 <p>Best regards,<br/><strong>VrindaaCorp Services</strong><br/><em>sales@vrindaacorp.com</em></p>`,
         aiGenerated: false,
       };
@@ -249,7 +252,7 @@ function fallbackTemplate(
       html: `<p>Hi {{firstName}},</p>
 <p>I am reaching out from <strong>VrindaaCorp Services</strong>. We partner with premier ${sector} organizations across {{city}} and {{geography}} to deliver end-to-end facility management and staff catering solutions.</p>
 <p>Our dedicated team oversees ${hook} with stringent quality compliance, 24/7 technical maintenance (HVAC, electrical, plumbing), and ISO-certified hygiene protocols.</p>
-<p>Would you be open to a quick 10-minute discovery call next week to see how we can assist {{company}}?</p>
+<p>Would you be open to a quick 10-minute discovery call next week? Feel free to <a href="${CALENDLY_BOOKING_URL}">schedule a 30-min discussion here</a>.</p>
 <p>Warm regards,<br/><strong>VrindaaCorp Services</strong><br/><em>sales@vrindaacorp.com</em></p>`,
       aiGenerated: false,
     };
@@ -264,7 +267,7 @@ function fallbackTemplate(
       html: `<p>Hi {{firstName}},</p>
 <p>I hope you are having a productive week.</p>
 <p>I wanted to quickly follow up on my previous message. At <strong>VrindaaCorp Services</strong>, we help growing organizations in {{city}} manage their facility operations—including workplace housekeeping, technical maintenance, and executive cafeteria services—under one reliable umbrella.</p>
-<p>Could we schedule a brief 10-minute introductory conversation this Thursday or Friday?</p>
+<p>Could we schedule a brief 10-minute introductory conversation this Thursday or Friday, or you can <a href="${CALENDLY_BOOKING_URL}">pick a convenient time on our calendar</a>?</p>
 <p>Warm regards,<br/><strong>VrindaaCorp Operations Team</strong><br/><em>sales@vrindaacorp.com</em></p>`,
       aiGenerated: false,
     };
@@ -278,7 +281,7 @@ function fallbackTemplate(
 <p>I hope this email finds you well.</p>
 <p>I am reaching out from <strong>VrindaaCorp Services</strong>. We provide integrated facility management—encompassing technical maintenance (HVAC, electrical, plumbing), premium housekeeping, 24/7 security, and corporate cafeteria operations—for leading enterprises across {{city}}.</p>
 <p>Our unified model eliminates the hassle of managing multiple fragmented vendors, ensuring verified quality benchmarks, regulatory safety compliance, and up to 15-20% cost efficiency for {{company}}.</p>
-<p>Would you be open to a brief 10-minute introductory call next week to discuss your current facility requirements?</p>
+<p>Would you be open to a brief 10-minute introductory call next week to discuss your current facility requirements? Feel free to <a href="${CALENDLY_BOOKING_URL}">book a 30-min call here</a>.</p>
 <p>Best regards,<br/><strong>VrindaaCorp Business Solutions</strong><br/><em>sales@vrindaacorp.com</em></p>`,
     aiGenerated: false,
   };

@@ -25,3 +25,5 @@ export const STAGE_LABELS: Record<LeadStage, string> = {
   WON: "Won",
   LOST: "Lost",
 };
+
+export const CALENDLY_BOOKING_URL = "https://calendly.com/vrindaacorp-sales/30min";

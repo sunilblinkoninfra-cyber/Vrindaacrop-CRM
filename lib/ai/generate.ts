@@ -1,11 +1,12 @@
 import { fullName } from "@/lib/utils";
 import { chatJSON, isAiConfigured } from "@/lib/ai/client";
+import { CALENDLY_BOOKING_URL } from "@/lib/constants";
 import type { RenderLead } from "@/lib/email/render";
 
 export { isAiConfigured };
 
 /** Short, stable description of VrindaaCorp used to ground every generated email. */
-export const COMPANY_CONTEXT = `VrindaaCorp Services is an integrated facility management company based in Greater Noida West, Uttar Pradesh, India. Services: hard services (HVAC, electrical, plumbing, preventive maintenance), cleaning & housekeeping, security, landscaping, energy management, corporate catering, business support, and compliance & safety. It serves corporate, healthcare, education, industrial, retail, hospitality, and residential clients.`;
+export const COMPANY_CONTEXT = `VrindaaCorp Services is an integrated facility management company based in Greater Noida West, Uttar Pradesh, India. Services: hard services (HVAC, electrical, plumbing, preventive maintenance), cleaning & housekeeping, security, landscaping, energy management, corporate catering, business support, and compliance & safety. It serves corporate, healthcare, education, industrial, retail, hospitality, and residential clients. Official Meeting Scheduling Link: https://calendly.com/vrindaacorp-sales/30min`;
 
 export type GeneratedEmail = { subject: string; html: string; generated: boolean };
 
@@ -38,6 +39,7 @@ Write a short, professional, personalized cold outreach email. Rules:
 - Tie the value proposition to their sector where relevant; do not invent facts about their company.
 - Keep it concise (90-140 words), warm and specific — not generic or salesy.
 - One clear call to action (a brief call/meeting). No emojis. No pushy language.
+- MANDATORY BOOK A CALL LINK: If you add an option or link to book a call or schedule a meeting, you MUST strictly use https://calendly.com/vrindaacorp-sales/30min (e.g. <a href="https://calendly.com/vrindaacorp-sales/30min">Book a 30-min call</a>) and NOTHING ELSE. Never use any other link or placeholder.
 - Return the body as simple HTML using only <p> and <a> tags. Do NOT include duplicate subject lines, signature blocks, or unsubscribe text inside bodyHtml.`;
 
   const userPrompt = `Lead: ${name} at ${company} (sector: ${sector}).
@@ -77,7 +79,7 @@ function fallbackEmail(name: string, company: string, sector: string, brief: str
     <p>I'm reaching out from VrindaaCorp Services. We provide integrated facility management —
     housekeeping, security, technical maintenance, and catering — for ${sector} organizations like ${company}.</p>
     <p>${brief ? escapeHtml(brief) : "We'd love to understand your current facility needs and see if we can help streamline operations and costs."}</p>
-    <p>Would you be open to a brief call this week? <a href="https://vrindaacorp.com">Learn more about us</a>.</p>
+    <p>Would you be open to a brief call this week? Feel free to <a href="${CALENDLY_BOOKING_URL}">book a 30-min call here</a> at your convenience.</p>
     <p>Warm regards,<br/>VrindaaCorp Services</p>`;
   return { subject, html: html.trim(), generated: false };
 }

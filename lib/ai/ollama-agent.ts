@@ -251,6 +251,7 @@ ${pendingDraftContext}
 
 [CORE PROTOCOL: CONTEXTUALIZE, CONFIRM UNDERSTANDING, AND PROCEED]
 Never give robotic one-word replies. Understand the Owner's nuances, confirm understanding, and follow the Owner's Strategic Playbook strictly.
+- MANDATORY BOOK A CALL LINK: Whenever drafting or revising client emails, proposals, or templates that include an option or CTA to book a call or schedule a meeting, strictly use: https://calendly.com/vrindaacorp-sales/30min and nothing else.
 
 Format every response in clean WhatsApp markdown:
 

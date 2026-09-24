@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Input, Select } from "@/components/ui";
-import { SECTORS, GEOGRAPHIES } from "@/lib/constants";
+import { SECTORS, GEOGRAPHIES, CALENDLY_BOOKING_URL } from "@/lib/constants";
 import {
   updateCampaign,
   deleteCampaign,
@@ -24,6 +24,7 @@ import type { CampaignStatus } from "@prisma/client";
 
 const QUICK_SUGGESTIONS = [
   { label: "⚡ Make Concise (< 100 words)", prompt: "Make the email concise, punchy, and under 100 words while maintaining high engagement." },
+  { label: "📅 Add Calendly Booking Link", prompt: "Add a clear call-to-action inviting the recipient to schedule a discussion using our official Calendly link: https://calendly.com/vrindaacorp-sales/30min." },
   { label: "🛡️ Emphasize PSARA & 24/7 Audits", prompt: "Highlight our PSARA compliance, verified guards, and 24/7 surprise supervisor audits." },
   { label: "🚨 15-Min Emergency Unit", prompt: "Emphasize our 15-minute quick reaction emergency response unit for Delhi-NCR and Gurgaon facilities." },
   { label: "☕ Free Tasting Session", prompt: "Add an invitation for a complimentary corporate cafeteria tasting session for the facility head." },
@@ -1177,6 +1178,14 @@ export function CampaignBuilder({
                             + {`{{${tok}}}`}
                           </button>
                         ))}
+                        <button
+                          type="button"
+                          onClick={() => setEditorHtml((prev) => `${prev.trim()}\n\n<p><a href="${CALENDLY_BOOKING_URL}">Book a 30-min call</a></p>`)}
+                          className="rounded bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-800 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-300 transition flex items-center gap-1 ml-1"
+                          title={`Insert official Calendly booking link: ${CALENDLY_BOOKING_URL}`}
+                        >
+                          📅 + Book a Call Link
+                        </button>
                       </div>
                     </div>
                     <textarea

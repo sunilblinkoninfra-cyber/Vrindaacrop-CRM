@@ -63,6 +63,14 @@ const DEFAULT_DIRECTIVES: OwnerDirective[] = [
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
+  {
+    id: "dir_calendly",
+    category: "standing_rule",
+    content: "Whenever adding a 'book a call' option or meeting link to email templates or client replies, strictly use https://calendly.com/vrindaacorp-sales/30min and nothing else.",
+    source: "owner_explicit",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
 ];
 
 /**
