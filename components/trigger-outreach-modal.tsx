@@ -571,6 +571,17 @@ export function TriggerOutreachModal({
               </span>
             </div>
           )}
+
+          {/* Strict Deliverability Guard Banner */}
+          <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/60 px-3.5 py-2 text-[11px] text-indigo-900 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm leading-none">🛡️</span>
+              <span>
+                <strong>Strict Deliverability Guard:</strong> Only verified <strong className="text-emerald-700 font-bold">VALID</strong> mailboxes are scheduled. Non-valid are excluded.
+              </span>
+            </div>
+            <span className="text-[10px] text-indigo-700 font-medium">Zero-Tolerance Active</span>
+          </div>
           {mode === "scheduled" && (
             <div className="space-y-4">
               {/* Interactive Month Calendar Card */}

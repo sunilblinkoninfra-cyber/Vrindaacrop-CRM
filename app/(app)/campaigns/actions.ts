@@ -212,11 +212,15 @@ export async function scheduleCampaignOutreach(
 
   const sendLimit = limit && limit > 0 ? Math.min(limit, 1000) : 50;
 
-  // Query target active enrollments
+  // Query target active enrollments — strictly VALID leads only
   const activeEnrollments = await prisma.enrollment.findMany({
     where: {
       campaignId,
       state: "ACTIVE",
+      lead: {
+        isSuppressed: false,
+        validationStatus: "VALID",
+      },
     },
     orderBy: { id: "asc" },
     take: sendLimit,
@@ -228,7 +232,7 @@ export async function scheduleCampaignOutreach(
       ok: true,
       count: 0,
       scheduledAt: new Date().toISOString(),
-      message: "No active enrollments found for this campaign.",
+      message: "No active VALID enrollments found for this campaign.",
     };
   }
 
@@ -255,13 +259,34 @@ export async function scheduleCampaignOutreach(
       });
     }
 
+    const firstDate = validSelectedDates[0];
+    const lastDate = validSelectedDates[validSelectedDates.length - 1];
+
+    // Save schedule metadata on campaign for display
+    const campData = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { segment: true } });
+    const existingSegment = (campData?.segment as Record<string, any>) || {};
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        segment: {
+          ...existingSegment,
+          _schedule: {
+            type: "calendar",
+            scheduledDates: validSelectedDates.map((d) => d.toISOString()),
+            firstSendAt: firstDate.toISOString(),
+            lastSendAt: lastDate.toISOString(),
+            leadsPerDay,
+            totalScheduled: activeEnrollments.length,
+            scheduledAt: now.toISOString(),
+          },
+        },
+      },
+    });
+
     revalidatePath("/campaigns");
     revalidatePath(`/campaigns/${campaignId}`);
     revalidatePath("/");
     revalidatePath("/leads");
-
-    const firstDate = validSelectedDates[0];
-    const lastDate = validSelectedDates[validSelectedDates.length - 1];
 
     // If the earliest scheduled date/time is already due now or in the past, dispatch first batch immediately
     const hasDueNow = validSelectedDates.some((d) => d.getTime() <= now.getTime());
@@ -311,6 +336,27 @@ export async function scheduleCampaignOutreach(
 
   const firstSendDate = new Date(baseTime);
   const lastSendDate = new Date(baseTime + (activeEnrollments.length - 1) * validDelay * 1000);
+
+  // Save schedule metadata on campaign for display
+  const campData = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { segment: true } });
+  const existingSegment = (campData?.segment as Record<string, any>) || {};
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: {
+      segment: {
+        ...existingSegment,
+        _schedule: {
+          type: isImmediate ? "immediate" : "datetime",
+          scheduledDates: [startDate.toISOString()],
+          firstSendAt: firstSendDate.toISOString(),
+          lastSendAt: lastSendDate.toISOString(),
+          leadsPerDay: activeEnrollments.length,
+          totalScheduled: activeEnrollments.length,
+          scheduledAt: now.toISOString(),
+        },
+      },
+    },
+  });
   const totalSpanSeconds = (activeEnrollments.length - 1) * validDelay;
 
   // If immediate dispatch requested (startDate <= now):

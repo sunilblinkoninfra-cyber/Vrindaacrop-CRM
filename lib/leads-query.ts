@@ -61,9 +61,14 @@ export function buildLeadWhere(params: URLSearchParams): Prisma.LeadWhereInput {
 /** Same as buildLeadWhere but from a plain object (used by campaign segments). */
 export function segmentToWhere(segment: Record<string, string> | null | undefined): Prisma.LeadWhereInput {
   const params = new URLSearchParams();
-  if (segment) for (const [k, v] of Object.entries(segment)) if (v) params.set(k, v);
-  // Segments should never target suppressed or known-bad-email leads.
+  if (segment) {
+    for (const [k, v] of Object.entries(segment)) {
+      if (v && k !== "_schedule") params.set(k, v);
+    }
+  }
+  // Outbound campaigns strictly target verified VALID leads.
+  // Suppressed, unknown, catch-all, and risky leads are strictly excluded.
   params.set("suppressed", "0");
-  params.set("validationNot", "INVALID,DISPOSABLE");
+  params.set("validation", "VALID");
   return buildLeadWhere(params);
 }

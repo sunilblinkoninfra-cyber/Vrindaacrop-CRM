@@ -308,7 +308,7 @@ export async function claimNextEnrollment(
         AND e."nextSendAt" <= ${now}
         AND (e."sendClaimedUntil" IS NULL OR e."sendClaimedUntil" < ${now})
         AND l."isSuppressed" = false
-        AND l."validationStatus" NOT IN ('INVALID', 'DISPOSABLE')
+        AND l."validationStatus" = 'VALID'
         ${campaignFilter}
       ORDER BY
         CASE WHEN l."validationStatus" = 'VALID' THEN 0 ELSE 1 END,

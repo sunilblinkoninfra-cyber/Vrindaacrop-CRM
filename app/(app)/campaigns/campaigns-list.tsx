@@ -17,11 +17,73 @@ type CampaignItem = {
   name: string;
   status: string;
   createdAt: Date;
+  nextScheduledAt?: Date | string | null;
+  activeValidCount?: number;
+  activeTotalCount?: number;
+  pausedCount?: number;
+  scheduleMeta?: {
+    type?: string;
+    scheduledDates?: string[];
+    firstSendAt?: string;
+    lastSendAt?: string;
+    leadsPerDay?: number;
+    totalScheduled?: number;
+    scheduledAt?: string;
+  } | null;
+  plan?: {
+    sendWindowStart: string;
+    sendWindowEnd: string;
+    timezone: string;
+    fromEmail: string;
+    hardDailyCap: number;
+  };
   _count: {
     steps: number;
     enrollments: number;
   };
 };
+
+function formatScheduleTiming(dateStr: Date | string | null | undefined, timezone = "Asia/Kolkata") {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+
+  const now = new Date();
+  const isPast = d.getTime() <= now.getTime();
+
+  const dateFormatted = d.toLocaleDateString("en-IN", {
+    timeZone: timezone,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const timeFormatted = d.toLocaleTimeString("en-IN", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  const todayStr = now.toLocaleDateString("en-IN", { timeZone: timezone });
+  const targetStr = d.toLocaleDateString("en-IN", { timeZone: timezone });
+
+  const tomorrow = new Date(now.getTime() + 86400000);
+  const tomorrowStr = tomorrow.toLocaleDateString("en-IN", { timeZone: timezone });
+
+  let dayLabel = dateFormatted;
+  if (targetStr === todayStr) {
+    dayLabel = "Today";
+  } else if (targetStr === tomorrowStr) {
+    dayLabel = "Tomorrow";
+  }
+
+  return {
+    isPast,
+    dayLabel,
+    timeFormatted,
+    fullText: `${dayLabel}, ${timeFormatted} IST`,
+  };
+}
 
 const statusTone: Record<string, string> = {
   DRAFT: "bg-slate-100 text-slate-600",
@@ -133,13 +195,13 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
           return (
             <li
               key={c.id}
-              className="flex flex-col items-start justify-between gap-3 p-4 sm:flex-row sm:items-center"
+              className="flex flex-col items-start justify-between gap-4 p-4.5 sm:flex-row sm:items-center hover:bg-slate-50/60 transition-colors"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <Link
                     href={`/campaigns/${c.id}`}
-                    className="block truncate font-medium text-brand hover:underline"
+                    className="block truncate font-semibold text-slate-900 hover:text-brand hover:underline text-base"
                   >
                     {c.name}
                   </Link>
@@ -147,9 +209,67 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
                     {c.status}
                   </Badge>
                 </div>
-                <div className="mt-1 text-xs text-slate-400">
-                  {c._count.steps} step{c._count.steps === 1 ? "" : "s"} · {c._count.enrollments} enrolled
+                <div className="mt-1 text-xs text-slate-500">
+                  {c._count.steps} step{c._count.steps === 1 ? "" : "s"} · {c._count.enrollments} total enrolled
                 </div>
+
+                {/* Schedule Details & Timing Section */}
+                {(() => {
+                  const schedule = formatScheduleTiming(c.nextScheduledAt, c.plan?.timezone);
+                  const windowStr = `${c.plan?.sendWindowStart || "09:00"} - ${c.plan?.sendWindowEnd || "18:00"} (${c.plan?.timezone || "Asia/Kolkata"})`;
+
+                  return (
+                    <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+                      {schedule ? (
+                        <div
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium border shadow-2xs ${
+                            schedule.isPast
+                              ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                              : "bg-indigo-50 text-indigo-900 border-indigo-200"
+                          }`}
+                        >
+                          <span className="text-sm leading-none">{schedule.isPast ? "⚡" : "🗓️"}</span>
+                          <span>
+                            {schedule.isPast ? "Outreach Due / Running:" : "Next Scheduled Send:"}{" "}
+                            <strong className="font-bold">{schedule.fullText}</strong>
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium text-slate-500 bg-slate-50 border border-slate-200">
+                          <span>⏸️</span>
+                          <span>No upcoming schedule set</span>
+                        </div>
+                      )}
+
+                      {/* Daily Sending Window */}
+                      <div
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-slate-700 bg-slate-100/90 border border-slate-200"
+                        title="Configured active daily sending window"
+                      >
+                        <span>🕒</span>
+                        <span>Window: <strong>{windowStr}</strong></span>
+                      </div>
+
+                      {/* Deliverability Guarantee: Valid Leads Only */}
+                      <div
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-emerald-800 bg-emerald-50 border border-emerald-200"
+                        title="Strict deliverability policy: Only 100% verified VALID mailboxes will be contacted"
+                      >
+                        <span>🛡️</span>
+                        <span>Valid Only: <strong>{c.activeValidCount ?? 0} eligible</strong></span>
+                      </div>
+
+                      {c.pausedCount && c.pausedCount > 0 ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200"
+                          title="Leads automatically paused because their email is not verified as VALID (catch-all, risky, unprobed, or invalid)"
+                        >
+                          <span>⚠️</span> {c.pausedCount} non-valid paused
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex items-center gap-2 self-end sm:self-center">

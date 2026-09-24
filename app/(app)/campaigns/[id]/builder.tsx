@@ -63,11 +63,40 @@ type SampleLead = {
   email: string;
 };
 
+type ScheduleDetails = {
+  nextScheduledAt: string | null;
+  lastScheduledAt: string | null;
+  activeValidCount: number;
+  activeTotalCount: number;
+  pausedCount: number;
+  completedCount: number;
+  sendWindowStart: string;
+  sendWindowEnd: string;
+  timezone: string;
+  hardDailyCap: number;
+  fromEmail: string;
+  scheduleMeta?: {
+    type?: string;
+    scheduledDates?: string[];
+    firstSendAt?: string;
+    lastSendAt?: string;
+    leadsPerDay?: number;
+    totalScheduled?: number;
+    scheduledAt?: string;
+  } | null;
+  upcomingBatches: Array<{
+    dateStr: string;
+    count: number;
+    sampleTime: string;
+  }>;
+};
+
 export function CampaignBuilder({
   campaignId,
   campaignName,
   status,
   segment,
+  scheduleDetails,
   steps,
   templates,
   enrolledCount,
@@ -78,6 +107,7 @@ export function CampaignBuilder({
   campaignName: string;
   status: CampaignStatus;
   segment: Record<string, string>;
+  scheduleDetails?: ScheduleDetails;
   steps: Step[];
   templates: TemplateOpt[];
   enrolledCount: number;
@@ -407,6 +437,141 @@ export function CampaignBuilder({
       {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div>}
       {success && <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{success}</div>}
 
+      {/* Campaign Schedule & Timing Details Card */}
+      {scheduleDetails && (
+        <Card className="overflow-hidden border-indigo-100 bg-gradient-to-b from-indigo-50/40 via-white to-white p-5 shadow-xs">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-indigo-100/70 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xs">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                  <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Campaign Schedule & Timing Details</h2>
+                <p className="text-xs text-slate-500">Live dispatch schedule, daily sending window, and deliverability protection.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleOpenScheduleModal}
+                className="h-8 px-3 text-xs bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+              >
+                <span>📅 Edit Schedule & Timing</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* 4 Key Metrics Grid */}
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {/* 1. Next Dispatch Timing */}
+            <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-medium">Next Scheduled Send</span>
+                <span className="text-indigo-600 font-semibold">IST</span>
+              </div>
+              <div className="mt-1 text-sm font-bold text-slate-900">
+                {scheduleDetails.nextScheduledAt
+                  ? new Date(scheduleDetails.nextScheduledAt).toLocaleDateString("en-IN", {
+                      timeZone: scheduleDetails.timezone,
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    }) + " at " +
+                    new Date(scheduleDetails.nextScheduledAt).toLocaleTimeString("en-IN", {
+                      timeZone: scheduleDetails.timezone,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: true,
+                    })
+                  : "Not Scheduled"}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-400">
+                {scheduleDetails.nextScheduledAt && new Date(scheduleDetails.nextScheduledAt) <= new Date()
+                  ? "⚡ Send due / in current active window"
+                  : scheduleDetails.nextScheduledAt
+                  ? "Upcoming calendar dispatch"
+                  : "Click Schedule to set date & time"}
+              </div>
+            </div>
+
+            {/* 2. Active Sending Window */}
+            <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-medium">Daily Send Window</span>
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Cap: {scheduleDetails.hardDailyCap}/day</span>
+              </div>
+              <div className="mt-1 text-sm font-bold text-slate-900">
+                {scheduleDetails.sendWindowStart} – {scheduleDetails.sendWindowEnd}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                {scheduleDetails.timezone} (Indian Standard Time)
+              </div>
+            </div>
+
+            {/* 3. Strict Deliverability Gate */}
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3.5 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-emerald-800">
+                <span className="font-bold">Deliverability Gate</span>
+                <span className="rounded bg-emerald-200/70 px-1.5 py-0.5 text-[10px] font-bold text-emerald-900">ENFORCED</span>
+              </div>
+              <div className="mt-1 text-sm font-bold text-emerald-950">
+                {scheduleDetails.activeValidCount} Valid Leads Ready
+              </div>
+              <div className="mt-1 text-[11px] text-emerald-700">
+                Only verified VALID emails will be contacted
+              </div>
+            </div>
+
+            {/* 4. Sender Account & Provider */}
+            <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-medium">Outbound Mailbox</span>
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">SMTP</span>
+              </div>
+              <div className="mt-1 text-sm font-bold text-slate-900 truncate" title={scheduleDetails.fromEmail}>
+                {scheduleDetails.fromEmail}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-400">
+                Google Workspace SMTP authenticated
+              </div>
+            </div>
+          </div>
+
+          {/* Upcoming Dispatch Batches Breakdown */}
+          {scheduleDetails.upcomingBatches.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <div className="text-xs font-semibold text-slate-700 mb-2">Upcoming Scheduled Batches:</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                {scheduleDetails.upcomingBatches.map((b, idx) => (
+                  <div key={idx} className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5 text-xs flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold text-slate-900">{b.dateStr}</div>
+                      <div className="text-[11px] text-slate-500">Timing: {b.sampleTime}</div>
+                    </div>
+                    <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-700">
+                      {b.count} lead{b.count === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {scheduleDetails.pausedCount > 0 && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800 border border-amber-200">
+              <span>⚠️</span>
+              <span>
+                <strong>{scheduleDetails.pausedCount} non-valid leads</strong> (catch-all, risky, unverified) have been safely paused from this campaign to protect your sender domain reputation.
+              </span>
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* Target Segment Card */}
       <Card className="space-y-3">
         <h2 className="text-sm font-semibold text-slate-700">Target segment</h2>
@@ -423,12 +588,13 @@ export function CampaignBuilder({
               <option key={g} value={g}>{g}</option>
             ))}
           </Select>
-          <Select value={seg.validation ?? ""} onChange={(e) => setSeg({ ...seg, validation: e.target.value })}>
-            <option value="">Any validation</option>
-            <option value="VALID">Valid only</option>
-            <option value="UNKNOWN">Unknown</option>
-            <option value="RISKY">Risky</option>
-          </Select>
+          <div className="flex flex-col justify-center rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+            <span className="flex items-center gap-1.5">
+              <span className="text-emerald-600 font-bold">✓</span>
+              <span>Validation: VALID Only (Enforced)</span>
+            </span>
+            <span className="text-[10px] font-normal text-emerald-600">Zero tolerance: non-valid excluded</span>
+          </div>
           <Input
             placeholder="Tag"
             value={seg.tag ?? ""}
@@ -441,18 +607,18 @@ export function CampaignBuilder({
             variant="secondary"
             disabled={pending}
             onClick={() => run(async () => {
-              setCount(await segmentCount(seg));
+              setCount(await segmentCount({ ...seg, validation: "VALID" }));
             })}
           >
             Preview count
           </Button>
           {count !== null && (
-            <span className="text-sm text-slate-600">{count} leads match (excludes suppressed)</span>
+            <span className="text-sm text-slate-600">{count} valid leads match (excludes non-valid & suppressed)</span>
           )}
           <Button
             className="w-full sm:w-auto"
             disabled={pending}
-            onClick={() => run(() => updateSegment(campaignId, seg), "Target segment saved.")}
+            onClick={() => run(() => updateSegment(campaignId, { ...seg, validation: "VALID" }), "Target segment saved.")}
           >
             Save segment
           </Button>

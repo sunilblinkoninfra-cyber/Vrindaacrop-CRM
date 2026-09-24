@@ -120,8 +120,10 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
       skipped++;
       continue;
     }
-    if (lead.validationStatus === "INVALID" || lead.validationStatus === "DISPOSABLE") {
-      await releaseClaim({ claim, state: "PAUSED", reason: "invalid_email" });
+    // Strict deliverability requirement: ONLY VALID emails are ever contacted.
+    if (lead.validationStatus !== "VALID") {
+      await pauseEnrollmentsForLead(lead.id, `non_valid_${lead.validationStatus.toLowerCase()}`);
+      await releaseClaim({ claim, state: "PAUSED", reason: `non_valid_${lead.validationStatus.toLowerCase()}` });
       skipped++;
       continue;
     }
@@ -185,6 +187,11 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
             smtpCheckedAt: now,
           },
         });
+        // Never contact catch-all or unconfirmed inboxes
+        await pauseEnrollmentsForLead(lead.id, "non_valid_catch_all");
+        await releaseClaim({ claim, state: "PAUSED", reason: "non_valid_catch_all" });
+        skipped++;
+        continue;
       } else {
         const probe = await probeMailbox(lead.email, mxHost);
         if (probe.outcome === "confirmed-invalid") {
@@ -218,7 +225,7 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
             },
           });
         } else {
-          // Probe inconclusive (port 25 timeout/block) — stamp smtpCheckedAt and reason to avoid repeated re-probes
+          // Probe inconclusive (port 25 timeout/block) — stamp smtpCheckedAt and reason
           await prisma.lead.update({
             where: { id: lead.id },
             data: {
@@ -226,8 +233,22 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
               smtpCheckedAt: now,
             },
           });
+          // Inconclusive probe: strictly block sending if not confirmed valid
+          if (lead.validationStatus !== "VALID") {
+            await pauseEnrollmentsForLead(lead.id, "non_valid_unconfirmed");
+            await releaseClaim({ claim, state: "PAUSED", reason: "non_valid_unconfirmed" });
+            skipped++;
+            continue;
+          }
         }
       }
+    }
+
+    // Final safety check: strictly ONLY VALID leads can ever be emailed
+    if ((lead.validationStatus as any) !== "VALID") {
+      await releaseClaim({ claim, state: "PAUSED", reason: "non_valid_email" });
+      skipped++;
+      continue;
     }
     if (enrollment.campaign.status !== "ACTIVE") {
       await releaseClaim({ claim, state: "PAUSED", reason: "campaign_inactive" });
