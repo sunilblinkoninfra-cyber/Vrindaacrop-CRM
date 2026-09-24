@@ -510,3 +510,75 @@ export async function getCampaignPreviewData(campaignId: string): Promise<Campai
     steps: renderedSteps,
   };
 }
+
+/**
+ * Calls Ollama AI to refine/rewrite an auto-generated or custom campaign email template
+ * based on user instructions and suggestions, respecting the Owner's Strategic Playbook.
+ */
+export async function refineCampaignTemplateWithAI(args: {
+  campaignId: string;
+  templateId: string;
+  currentSubjectA: string;
+  currentSubjectB?: string | null;
+  currentHtml: string;
+  instruction: string;
+}) {
+  await requireUser();
+
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: args.campaignId },
+    select: { name: true, segment: true },
+  });
+  const segment = (campaign?.segment as Record<string, string> | null) ?? {};
+
+  const { refineTemplateWithOllama } = await import("@/lib/ai/generate-template");
+  const result = await refineTemplateWithOllama({
+    currentSubjectA: args.currentSubjectA,
+    currentSubjectB: args.currentSubjectB,
+    currentHtml: args.currentHtml,
+    instruction: args.instruction,
+    campaignContext: {
+      name: campaign?.name,
+      sector: segment.sector,
+      geography: segment.geography,
+    },
+  });
+
+  return result;
+}
+
+/**
+ * Saves manual or AI-assisted changes to a campaign's email template.
+ */
+export async function saveCampaignTemplateChanges(args: {
+  campaignId: string;
+  templateId: string;
+  subjectA: string;
+  subjectB?: string | null;
+  html: string;
+  name?: string;
+}) {
+  await requireUser();
+
+  const updated = await prisma.emailTemplate.update({
+    where: { id: args.templateId },
+    data: {
+      subjectA: args.subjectA.trim(),
+      subjectB: args.subjectB?.trim() || null,
+      html: args.html,
+      ...(args.name ? { name: args.name.trim() } : {}),
+      aiBrief: `Revised via Ollama AI for campaign ${args.campaignId}`,
+    },
+  });
+
+  revalidatePath(`/campaigns/${args.campaignId}`);
+  revalidatePath("/templates");
+
+  return {
+    id: updated.id,
+    name: updated.name,
+    subjectA: updated.subjectA,
+    subjectB: updated.subjectB,
+    html: updated.html,
+  };
+}

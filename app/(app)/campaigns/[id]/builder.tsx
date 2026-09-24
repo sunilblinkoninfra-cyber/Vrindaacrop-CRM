@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Input, Select } from "@/components/ui";
 import { SECTORS, GEOGRAPHIES } from "@/lib/constants";
@@ -16,9 +16,20 @@ import {
   segmentCount,
   triggerCampaignOutreach,
   scheduleCampaignOutreach,
+  refineCampaignTemplateWithAI,
+  saveCampaignTemplateChanges,
 } from "../actions";
 import { TriggerOutreachModal } from "@/components/trigger-outreach-modal";
 import type { CampaignStatus } from "@prisma/client";
+
+const QUICK_SUGGESTIONS = [
+  { label: "⚡ Make Concise (< 100 words)", prompt: "Make the email concise, punchy, and under 100 words while maintaining high engagement." },
+  { label: "🛡️ Emphasize PSARA & 24/7 Audits", prompt: "Highlight our PSARA compliance, verified guards, and 24/7 surprise supervisor audits." },
+  { label: "🚨 15-Min Emergency Unit", prompt: "Emphasize our 15-minute quick reaction emergency response unit for Delhi-NCR and Gurgaon facilities." },
+  { label: "☕ Free Tasting Session", prompt: "Add an invitation for a complimentary corporate cafeteria tasting session for the facility head." },
+  { label: "💼 Consultative & Softer CTA", prompt: "Adopt a softer, consultative tone with an easy low-friction 10-minute discovery call." },
+  { label: "💰 Inaugural Q1 Pricing", prompt: "Mention our inaugural first-quarter pricing benefits for premier corporate partners." },
+];
 
 type Step = {
   id: string;
@@ -90,6 +101,23 @@ export function CampaignBuilder({
   const [editStepTemplateId, setEditStepTemplateId] = useState("");
   const [editStepDelay, setEditStepDelay] = useState("0");
 
+  // Sequence steps state kept in sync with props
+  const [localSteps, setLocalSteps] = useState<Step[]>(steps);
+  useEffect(() => {
+    setLocalSteps(steps);
+  }, [steps]);
+
+  // AI Template Editor & Refinement Modal State
+  const [editingTemplateStep, setEditingTemplateStep] = useState<Step | null>(null);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [isAiRefining, setIsAiRefining] = useState(false);
+  const [aiChangesSummary, setAiChangesSummary] = useState<string | null>(null);
+  const [editorSubjectA, setEditorSubjectA] = useState("");
+  const [editorSubjectB, setEditorSubjectB] = useState("");
+  const [editorHtml, setEditorHtml] = useState("");
+  const [editorTab, setEditorTab] = useState<"edit" | "preview">("edit");
+  const [editorPreviewVariant, setEditorPreviewVariant] = useState<"A" | "B">("A");
+
   // Step Preview Modal State
   const [previewStep, setPreviewStep] = useState<Step | null>(null);
   const [previewVariant, setPreviewVariant] = useState<"A" | "B">("A");
@@ -97,6 +125,98 @@ export function CampaignBuilder({
   // Trigger & Schedule Outreach Modal State
   const [isTriggerModalOpen, setIsTriggerModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"immediate" | "scheduled">("immediate");
+
+  function openAiEditor(step: Step) {
+    setEditingTemplateStep(step);
+    setEditorSubjectA(step.subjectA || "");
+    setEditorSubjectB(step.subjectB || "");
+    setEditorHtml(step.html || "");
+    setAiPrompt("");
+    setAiChangesSummary(null);
+    setEditorTab("edit");
+    setEditorPreviewVariant("A");
+  }
+
+  async function handleAskAi(customPrompt?: string) {
+    if (!editingTemplateStep) return;
+    const promptToSend = (customPrompt || aiPrompt).trim();
+    if (!promptToSend) return;
+
+    setIsAiRefining(true);
+    setAiChangesSummary(null);
+    try {
+      const res = await refineCampaignTemplateWithAI({
+        campaignId,
+        templateId: editingTemplateStep.templateId,
+        currentSubjectA: editorSubjectA,
+        currentSubjectB: editorSubjectB,
+        currentHtml: editorHtml,
+        instruction: promptToSend,
+      });
+
+      if (res) {
+        setEditorSubjectA(res.subjectA);
+        setEditorSubjectB(res.subjectB);
+        setEditorHtml(res.html);
+        setAiChangesSummary(res.changesSummary);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Failed to refine template with Ollama AI.");
+    } finally {
+      setIsAiRefining(false);
+    }
+  }
+
+  async function handleSaveTemplateChanges() {
+    if (!editingTemplateStep) return;
+    try {
+      await saveCampaignTemplateChanges({
+        campaignId,
+        templateId: editingTemplateStep.templateId,
+        subjectA: editorSubjectA,
+        subjectB: editorSubjectB,
+        html: editorHtml,
+      });
+
+      // Update in local state
+      setLocalSteps((prev) =>
+        prev.map((s) =>
+          s.id === editingTemplateStep.id
+            ? {
+                ...s,
+                subjectA: editorSubjectA,
+                subjectB: editorSubjectB,
+                html: editorHtml,
+              }
+            : s
+        )
+      );
+
+      // Also update preview step if open
+      if (previewStep?.id === editingTemplateStep.id) {
+        setPreviewStep((prev) =>
+          prev
+            ? {
+                ...prev,
+                subjectA: editorSubjectA,
+                subjectB: editorSubjectB,
+                html: editorHtml,
+              }
+            : null
+        );
+      }
+
+      setSuccess("Template changes saved and updated across this campaign!");
+      setEditingTemplateStep(null);
+      router.refresh();
+    } catch (err: any) {
+      setError(err?.message || "Failed to save template changes.");
+    }
+  }
+
+  function insertToken(token: string) {
+    setEditorHtml((prev) => `${prev} {{${token}}}`);
+  }
 
   function renderTokens(text?: string | null) {
     if (!text) return "";
@@ -351,7 +471,7 @@ export function CampaignBuilder({
           </div>
         </div>
 
-        {steps.length === 0 && (
+        {localSteps.length === 0 && (
           <div className="rounded-xl border border-dashed border-emerald-300 bg-gradient-to-r from-emerald-50/70 to-teal-50/50 p-4 text-center">
             <div className="flex items-center justify-center gap-2 font-semibold text-emerald-900 text-sm">
               <span>✨ Zero-Blocker Sequence Setup</span>
@@ -378,7 +498,7 @@ export function CampaignBuilder({
         )}
 
         <ol className="space-y-2">
-          {steps.map((s) => {
+          {localSteps.map((s) => {
             const isEditingThis = editingStepId === s.id;
             const isOllama = s.templateName.includes("[Ollama AI]");
 
@@ -458,7 +578,7 @@ export function CampaignBuilder({
                         ({s.order === 0 ? "sent immediately" : `+${s.delayDays} days after prev`})
                       </span>
                     </div>
-                    <div className="flex items-center gap-1 self-end sm:self-center">
+                    <div className="flex items-center gap-1.5 self-end sm:self-center">
                       <Button
                         type="button"
                         variant="secondary"
@@ -475,17 +595,29 @@ export function CampaignBuilder({
                         type="button"
                         variant="secondary"
                         disabled={pending}
-                        onClick={() => startEditingStep(s)}
-                        className="h-8 min-h-0 px-2.5 py-1 text-xs"
+                        onClick={() => openAiEditor(s)}
+                        className="h-8 min-h-0 px-2.5 py-1 text-xs text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 font-semibold flex items-center gap-1 shadow-2xs"
+                        title="Edit template copy or suggest changes to Ollama AI"
                       >
-                        Edit
+                        <span className="text-xs">✨</span>
+                        <span>Edit / Refine with AI</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={pending}
+                        onClick={() => startEditingStep(s)}
+                        className="h-8 min-h-0 px-2 py-1 text-xs text-slate-500"
+                        title="Change step delay or select different template"
+                      >
+                        Delay
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
                         disabled={pending}
                         onClick={() => run(() => removeStep(s.id, campaignId), "Step removed.")}
-                        className="h-8 min-h-0 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                        className="h-8 min-h-0 px-2 py-1 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
                       >
                         Remove
                       </Button>
@@ -534,7 +666,7 @@ export function CampaignBuilder({
             className="w-full sm:w-auto border-emerald-200 text-emerald-800 hover:bg-emerald-50"
             disabled={pending}
             onClick={() => run(async () => {
-              await addStep(campaignId, undefined, steps.length === 0 ? 0 : 3);
+              await addStep(campaignId, undefined, localSteps.length === 0 ? 0 : 3);
             }, "Step automatically generated and added via Ollama AI / Industry match.")}
             title="Automatically resolve industry template or create one using Ollama AI"
           >
@@ -775,7 +907,20 @@ export function CampaignBuilder({
               </p>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => {
+                  const s = previewStep;
+                  setPreviewStep(null);
+                  openAiEditor(s);
+                }}
+                className="text-xs px-3.5 bg-purple-600 hover:bg-purple-700 text-white font-medium flex items-center gap-1.5 shadow-xs"
+              >
+                <span>✨</span>
+                <span>Suggest Changes to Ollama AI / Edit</span>
+              </Button>
               <Button
                 type="button"
                 variant="secondary"
@@ -784,6 +929,331 @@ export function CampaignBuilder({
               >
                 Close Preview
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Template Editor & Refinement Modal */}
+      {editingTemplateStep && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity"
+            onClick={() => {
+              if (!isAiRefining) setEditingTemplateStep(null);
+            }}
+          />
+          <div className="relative z-10 w-full max-w-3xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/10 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-6 py-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Step {editingTemplateStep.order + 1}
+                  </span>
+                  <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-[10px] font-bold text-purple-800 border border-purple-200 flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-purple-600 animate-pulse" />
+                    <span>Ollama AI (llama3.2:3b on VPS)</span>
+                  </span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900 mt-0.5">
+                  {editingTemplateStep.templateName}
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={isAiRefining}
+                onClick={() => setEditingTemplateStep(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 disabled:opacity-50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Body (Scrollable) */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {/* Suggest to Ollama AI Card */}
+              <div className="rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50/70 via-indigo-50/40 to-white p-4 space-y-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-600 text-white shadow-xs">
+                      <span className="text-sm">✨</span>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-purple-950 uppercase tracking-wider">
+                        Suggest Changes to Ollama AI
+                      </h4>
+                      <p className="text-[11px] text-purple-700">
+                        Tell Ollama AI how to improve or tailor this auto-generated template. It aligns with your Owner Strategic Playbook.
+                      </p>
+                    </div>
+                  </div>
+                  {isAiRefining && (
+                    <span className="text-xs font-medium text-purple-700 flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-purple-600 animate-ping" />
+                      Thinking on VPS...
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input
+                    placeholder="e.g., Shorten to 90 words, emphasize our 24/7 supervisor audits and 15-min response time..."
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !isAiRefining && aiPrompt.trim()) {
+                        handleAskAi();
+                      }
+                    }}
+                    disabled={isAiRefining}
+                    className="flex-1 text-xs bg-white border-purple-200 focus:border-purple-500 focus:ring-purple-500"
+                  />
+                  <Button
+                    type="button"
+                    variant="primary"
+                    disabled={isAiRefining || !aiPrompt.trim()}
+                    onClick={() => handleAskAi()}
+                    className="text-xs px-4 bg-purple-600 hover:bg-purple-700 text-white font-semibold flex items-center justify-center gap-1.5 shrink-0"
+                  >
+                    {isAiRefining ? (
+                      <>
+                        <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                        </svg>
+                        <span>Revising Copy...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>✨ Ask AI to Revise</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Quick 1-Click Suggestions */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-purple-900/60">
+                    Quick Suggestions:
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {QUICK_SUGGESTIONS.map((qs, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        disabled={isAiRefining}
+                        onClick={() => {
+                          setAiPrompt(qs.prompt);
+                          handleAskAi(qs.prompt);
+                        }}
+                        className="rounded-full bg-white/90 hover:bg-purple-100 border border-purple-200 px-2.5 py-1 text-[11px] font-medium text-purple-800 transition shadow-2xs hover:border-purple-300 disabled:opacity-50"
+                      >
+                        {qs.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* AI Changes Notification Alert */}
+                {aiChangesSummary && (
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-800 flex items-start gap-2">
+                    <span className="text-emerald-600 mt-0.5">✓</span>
+                    <div>
+                      <span className="font-semibold text-emerald-900">Ollama AI Revision Applied: </span>
+                      <span>{aiChangesSummary}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Tab Switcher: Edit vs Live Preview */}
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditorTab("edit")}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                      editorTab === "edit"
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    ✏️ Direct Code & Content Editor
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditorTab("preview")}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                      editorTab === "preview"
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    👁️ Live Lead Preview ({sampleLead?.company || "Sample Lead"})
+                  </button>
+                </div>
+
+                {editorTab === "preview" && (
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-500 font-medium mr-1">Variant:</span>
+                    <button
+                      type="button"
+                      onClick={() => setEditorPreviewVariant("A")}
+                      className={`rounded px-2 py-0.5 text-xs font-bold ${
+                        editorPreviewVariant === "A"
+                          ? "bg-purple-700 text-white"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      A
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditorPreviewVariant("B")}
+                      className={`rounded px-2 py-0.5 text-xs font-bold ${
+                        editorPreviewVariant === "B"
+                          ? "bg-purple-700 text-white"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      B
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Edit Mode Content */}
+              {editorTab === "edit" ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-700">
+                        <span>Subject Line A (Primary)</span>
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          {editorSubjectA.length} chars
+                        </span>
+                      </label>
+                      <Input
+                        value={editorSubjectA}
+                        onChange={(e) => setEditorSubjectA(e.target.value)}
+                        placeholder="Subject line A..."
+                        className="text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-700">
+                        <span>Subject Line B (A/B Test Variant)</span>
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          {editorSubjectB.length} chars
+                        </span>
+                      </label>
+                      <Input
+                        value={editorSubjectB}
+                        onChange={(e) => setEditorSubjectB(e.target.value)}
+                        placeholder="Subject line B (optional)..."
+                        className="text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Email Body (HTML Copy)
+                      </label>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-[10px] text-slate-400 mr-1">Insert Tokens:</span>
+                        {["firstName", "company", "city", "geography", "industryHook"].map((tok) => (
+                          <button
+                            key={tok}
+                            type="button"
+                            onClick={() => insertToken(tok)}
+                            className="rounded bg-slate-100 hover:bg-purple-50 hover:text-purple-700 px-1.5 py-0.5 text-[10px] font-mono text-slate-600 border border-slate-200 transition"
+                            title={`Click to append {{${tok}}}`}
+                          >
+                            + {`{{${tok}}}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <textarea
+                      value={editorHtml}
+                      onChange={(e) => setEditorHtml(e.target.value)}
+                      rows={9}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-900 text-slate-100 font-mono text-xs p-3 leading-relaxed focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      placeholder="<p>Hi {{firstName}},</p>..."
+                    />
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Supports standard HTML: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;, &lt;li&gt;, &lt;a href="..."&gt;. Double curly braces are replaced when sending.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* Preview Mode Content */
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1.5 text-xs text-slate-700">
+                    <div className="flex items-center gap-2">
+                      <span className="w-16 text-slate-400 font-medium">From:</span>
+                      <span className="font-mono text-slate-900">
+                        {outboundSender?.fromEmail || "sales@vrindaacorp.com"} (VrindaaCorp Services)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-16 text-slate-400 font-medium">To:</span>
+                      <span className="text-slate-900 font-medium">
+                        {sampleLead?.firstName || "Rahul"} {sampleLead?.lastName || "Sharma"} &lt;
+                        {sampleLead?.email || "rahul.sharma@apextowers.com"}&gt; ({sampleLead?.company || "Apex Towers"})
+                      </span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="w-16 text-slate-400 font-medium">Subject:</span>
+                      <span className="font-semibold text-slate-900">
+                        {renderTokens(
+                          editorPreviewVariant === "A"
+                            ? editorSubjectA
+                            : editorSubjectB || editorSubjectA
+                        )}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs font-sans text-xs text-slate-800 leading-relaxed max-h-72 overflow-y-auto">
+                    <div
+                      className="prose prose-xs max-w-none [&>p]:mb-2 [&>ul]:list-disc [&>ul]:pl-4 [&>ul]:mb-2 [&>li]:mb-1 [&>a]:text-purple-600 [&>a]:underline"
+                      dangerouslySetInnerHTML={{
+                        __html: renderTokens(editorHtml) || "<em>No content to preview.</em>",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/80 px-6 py-3">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={isAiRefining}
+                onClick={() => setEditingTemplateStep(null)}
+                className="text-xs px-4"
+              >
+                Cancel
+              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  disabled={isAiRefining || !editorSubjectA.trim() || !editorHtml.trim()}
+                  onClick={handleSaveTemplateChanges}
+                  className="text-xs px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 shadow-xs"
+                >
+                  <span>💾 Save Changes to Template</span>
+                </Button>
+              </div>
             </div>
           </div>
         </div>

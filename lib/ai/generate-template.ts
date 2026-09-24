@@ -101,6 +101,124 @@ Brief: ${campaignDescription || "Comprehensive facility management, workplace ca
   return fallbackTemplate(campaignName, sectorLabel, stepOrder);
 }
 
+/**
+ * Refines or rewrites an existing email template based on user instructions using Ollama AI.
+ * Injects the Owner's Strategic Memory playbook so that standing pricing policies,
+ * sector guidelines, and operational standards are automatically respected.
+ */
+export async function refineTemplateWithOllama(args: {
+  currentSubjectA: string;
+  currentSubjectB?: string | null;
+  currentHtml: string;
+  instruction: string;
+  campaignContext?: {
+    name?: string;
+    sector?: string;
+    geography?: string;
+  };
+}): Promise<{
+  subjectA: string;
+  subjectB: string;
+  html: string;
+  changesSummary: string;
+}> {
+  const { currentSubjectA, currentSubjectB, currentHtml, instruction, campaignContext } = args;
+
+  // 1. Fetch Owner Strategic Memory Playbook
+  let playbookContext = "";
+  try {
+    const { getOwnerStrategicMemory, formatMemoryForPrompt, autoLearnFromOwnerAction } = await import(
+      "@/lib/ai/strategic-memory"
+    );
+    const memory = await getOwnerStrategicMemory();
+    playbookContext = formatMemoryForPrompt(memory);
+
+    // Auto-learn any rules mentioned in the user instruction
+    await autoLearnFromOwnerAction({ userMessage: instruction });
+  } catch (err) {
+    console.warn("[refineTemplateWithOllama] Strategic memory fetch/learn error:", err);
+  }
+
+  if (isAiConfigured()) {
+    try {
+      const system = `You are the executive B2B cold email strategist and copywriter for VrindaaCorp Services.
+${COMPANY_CONTEXT}
+
+${playbookContext}
+
+CRITICAL RULES FOR REVISING THE TEMPLATE:
+- Accurately and creatively implement the user's specific revisions, suggestions, and feedback.
+- Preserve standard double curly brace merge variables: {{firstName}}, {{company}}, {{city}}, {{geography}}, {{industryHook}}.
+- Produce two crisp, compelling subject lines:
+  - "subjectA": Primary subject line (under 60 characters).
+  - "subjectB": A/B test variant (under 60 characters).
+- Produce clean HTML body in "html" using only <p>, <a>, <strong>, <em>, and <ul>/<li> tags.
+- Keep the body concise (85-130 words), professional, consultative, and action-oriented. Include one clear CTA for a brief 10-minute call or meeting.
+- In "changesSummary", provide a crisp 1-2 sentence description explaining exactly what changes were made in response to the user's suggestion.`;
+
+      const user = `CURRENT EMAIL TEMPLATE:
+- Subject Line A: "${currentSubjectA}"
+- Subject Line B (Variant): "${currentSubjectB || ""}"
+- Current Body HTML:
+${currentHtml}
+
+CAMPAIGN DETAILS:
+- Campaign: "${campaignContext?.name || "B2B Outreach"}"
+- Target Sector: "${campaignContext?.sector || "Corporate / Commercial"}"
+- Target Geography: "${campaignContext?.geography || "Delhi-NCR"}"
+
+USER'S REQUESTED CHANGES / SUGGESTIONS FOR OLLAMA AI:
+"${instruction}"
+
+Strictly return a JSON object with:
+- "subjectA": string
+- "subjectB": string
+- "html": string
+- "changesSummary": string`;
+
+      const parsed = await chatJSON<{
+        subjectA: string;
+        subjectB: string;
+        html: string;
+        changesSummary: string;
+      }>({
+        system,
+        user,
+        schema: {
+          type: "object",
+          properties: {
+            subjectA: { type: "string" },
+            subjectB: { type: "string" },
+            html: { type: "string" },
+            changesSummary: { type: "string" },
+          },
+          required: ["subjectA", "subjectB", "html", "changesSummary"],
+          additionalProperties: false,
+        },
+      });
+
+      if (parsed?.subjectA && parsed?.html) {
+        return {
+          subjectA: parsed.subjectA.trim(),
+          subjectB: parsed.subjectB?.trim() || currentSubjectB || `Inquiry regarding facility management for {{company}}`,
+          html: parsed.html.trim(),
+          changesSummary: parsed.changesSummary?.trim() || "Applied requested adjustments and refinements to the template.",
+        };
+      }
+    } catch (err) {
+      console.warn("[refineTemplateWithOllama] Ollama AI call failed, using heuristic fallback:", err);
+    }
+  }
+
+  // Deterministic fallback if Ollama is unreachable
+  return {
+    subjectA: currentSubjectA,
+    subjectB: currentSubjectB || `Exploring facility operations support for {{company}}`,
+    html: currentHtml,
+    changesSummary: "AI service was temporarily unavailable; preserved current template copy.",
+  };
+}
+
 function fallbackTemplate(
   campaignName: string,
   sector?: string,
