@@ -1,9 +1,14 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui";
-import { scheduleCampaignOutreach } from "@/app/(app)/campaigns/actions";
+import {
+  scheduleCampaignOutreach,
+  getOutreachSendingStatus,
+  resumeOutreachSending,
+  type OutreachSendingStatus,
+} from "@/app/(app)/campaigns/actions";
 
 interface TriggerOutreachModalProps {
   isOpen: boolean;
@@ -186,8 +191,9 @@ export function TriggerOutreachModal({
   // Calendar View Month
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
 
-  // Selected Dates (keys: YYYY-MM-DD)
+  // Selected Dates (keys: YYYY-MM-DD) — default to Today & Tomorrow
   const [selectedDateKeys, setSelectedDateKeys] = useState<string[]>(() => [
+    getTodayKey(),
     getTomorrowKey(),
   ]);
 
@@ -200,6 +206,18 @@ export function TriggerOutreachModal({
 
   // Immediate mode spacing (seconds)
   const [immediateDelay, setImmediateDelay] = useState<number>(0);
+
+  // Outreach Sending Status (Plan & Day Health)
+  const [sendingStatus, setSendingStatus] = useState<OutreachSendingStatus | null>(null);
+  const [isResumingOutreach, setIsResumingOutreach] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      getOutreachSendingStatus()
+        .then(setSendingStatus)
+        .catch(() => null);
+    }
+  }, [isOpen]);
 
   const [isPending, startTransition] = useTransition();
 
@@ -235,6 +253,19 @@ export function TriggerOutreachModal({
   }
 
   // Quick Calendar Shortcuts
+  function selectToday() {
+    const todayKey = getTodayKey();
+    setCalendarMonth(new Date());
+    setSelectedDateKeys([todayKey]);
+  }
+
+  function selectTodayAndTomorrow() {
+    const todayKey = getTodayKey();
+    const tomKey = getTomorrowKey();
+    setCalendarMonth(new Date());
+    setSelectedDateKeys([todayKey, tomKey]);
+  }
+
   function selectTomorrow() {
     const tomKey = getTomorrowKey();
     const tomDate = new Date();
@@ -355,9 +386,11 @@ export function TriggerOutreachModal({
           }
 
           const [hh, mm] = dispatchTime.split(":").map(Number);
+          const hour = isNaN(hh) ? 9 : Math.min(23, Math.max(0, hh));
+          const minute = isNaN(mm) ? 30 : Math.min(59, Math.max(0, mm));
           const selectedDatesISO = selectedDateKeys.map((key) => {
             const { year, month, day } = parseDateKey(key);
-            const dt = new Date(year, month, day, hh || 9, mm || 30, 0, 0);
+            const dt = new Date(year, month, day, hour, minute, 0, 0);
             return dt.toISOString();
           });
 
@@ -480,6 +513,64 @@ export function TriggerOutreachModal({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="space-y-4 p-5 sm:p-6">
+          {/* Pause Warning & 1-Click Resume Banner */}
+          {sendingStatus?.isPaused && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3.5 text-xs text-amber-900 flex items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-2.5">
+                <span className="text-lg leading-none">⚠️</span>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold">Outreach Sending is Currently Paused</span>
+                    {sendingStatus.pauseReason && (
+                      <span className="rounded bg-amber-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                        {sendingStatus.pauseReason}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-amber-700 mt-0.5 leading-snug">
+                    Submitting this dispatch or schedule will automatically reactivate outbound sending. You can also resume immediately below.
+                  </p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={isResumingOutreach}
+                onClick={async () => {
+                  setIsResumingOutreach(true);
+                  try {
+                    await resumeOutreachSending();
+                    const updated = await getOutreachSendingStatus();
+                    setSendingStatus(updated);
+                    onSuccess?.("✅ Outreach sending plan and today's schedule have been resumed!");
+                  } catch (err: any) {
+                    onError?.(err.message || "Failed to resume outreach.");
+                  } finally {
+                    setIsResumingOutreach(false);
+                  }
+                }}
+                className="shrink-0 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 shadow-xs"
+              >
+                {isResumingOutreach ? "Resuming…" : "Resume Outreach Now"}
+              </Button>
+            </div>
+          )}
+
+          {/* Active Sending Plan Summary Pill */}
+          {sendingStatus && !sendingStatus.isPaused && (
+            <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-3.5 py-2 text-[11px] text-emerald-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="font-semibold text-emerald-900">Outreach System Active</span>
+                <span className="text-emerald-700">
+                  • Daily budget: <strong>{sendingStatus.sentToday}/{sendingStatus.allowedToday}</strong> sent
+                </span>
+              </div>
+              <span className="text-emerald-700 font-mono text-[10px]">
+                Window: {sendingStatus.sendWindowStart} – {sendingStatus.sendWindowEnd} ({sendingStatus.timezone})
+              </span>
+            </div>
+          )}
           {mode === "scheduled" && (
             <div className="space-y-4">
               {/* Interactive Month Calendar Card */}
@@ -525,6 +616,20 @@ export function TriggerOutreachModal({
                 {/* Quick Date Range Selectors */}
                 <div className="flex flex-wrap items-center gap-1.5 pt-3 pb-2 text-[11px]">
                   <span className="font-semibold text-slate-400 mr-0.5">Quick:</span>
+                  <button
+                    type="button"
+                    onClick={selectToday}
+                    className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectTodayAndTomorrow}
+                    className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
+                  >
+                    Today & Tomorrow
+                  </button>
                   <button
                     type="button"
                     onClick={selectTomorrow}

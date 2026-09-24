@@ -179,6 +179,24 @@ export async function scheduleCampaignOutreach(
     });
   }
 
+  // Ensure the sending plan and today's sending day are UNPAUSED so outreach will actually send!
+  const { ensureDefaultSendingPlan, ensureSendingDay } = await import("@/lib/outreach/scheduler");
+  const plan = await ensureDefaultSendingPlan();
+  if (plan.status === "PAUSED") {
+    await prisma.sendingPlan.update({
+      where: { id: plan.id },
+      data: { status: "ACTIVE", pauseReason: null },
+    });
+  }
+  const now = new Date();
+  const prepared = await ensureSendingDay(plan, now);
+  if (prepared.day.paused) {
+    await prisma.sendingDay.update({
+      where: { id: prepared.day.id },
+      data: { paused: false, pauseReason: null },
+    });
+  }
+
   const { ensureDefaultIndustryTemplates } = await import("@/lib/templates-seed");
   await ensureDefaultIndustryTemplates();
 
@@ -245,6 +263,23 @@ export async function scheduleCampaignOutreach(
     const firstDate = validSelectedDates[0];
     const lastDate = validSelectedDates[validSelectedDates.length - 1];
 
+    // If the earliest scheduled date/time is already due now or in the past, dispatch first batch immediately
+    const hasDueNow = validSelectedDates.some((d) => d.getTime() <= now.getTime());
+    if (hasDueNow) {
+      (async () => {
+        try {
+          const { runSender } = await import("@/lib/outreach/sender");
+          await runSender({
+            limit: leadsPerDay,
+            delaySeconds: 15,
+            campaignId,
+          });
+        } catch (err) {
+          console.error("[scheduleCampaignOutreach immediate background send error]:", err);
+        }
+      })();
+    }
+
     return {
       ok: true,
       count: activeEnrollments.length,
@@ -252,13 +287,12 @@ export async function scheduleCampaignOutreach(
       lastSendAt: lastDate.toISOString(),
       datesCount: validSelectedDates.length,
       isImmediate: false,
-      message: `Outreach scheduled across ${validSelectedDates.length} selected calendar date(s) for ${activeEnrollments.length} lead(s).`,
+      message: `Outreach scheduled across ${validSelectedDates.length} selected calendar date(s) for ${activeEnrollments.length} lead(s). Sending plan is ACTIVE.`,
     };
   }
 
   const parsedStart = startDateISO ? new Date(startDateISO) : new Date();
   const startDate = isNaN(parsedStart.getTime()) ? new Date() : parsedStart;
-  const now = new Date();
   const isImmediate = startDate.getTime() <= now.getTime();
 
   // Support delay up to 30 days (1 month = 2,592,000 seconds)
@@ -581,4 +615,93 @@ export async function saveCampaignTemplateChanges(args: {
     subjectB: updated.subjectB,
     html: updated.html,
   };
+}
+
+export type OutreachSendingStatus = {
+  planId: string;
+  fromEmail: string;
+  planStatus: "ACTIVE" | "PAUSED";
+  planPauseReason: string | null;
+  dayPaused: boolean;
+  dayPauseReason: string | null;
+  sentToday: number;
+  reservedToday: number;
+  allowedToday: number;
+  hardDailyCap: number;
+  warmupDay: number;
+  sendWindowStart: string;
+  sendWindowEnd: string;
+  timezone: string;
+  isPaused: boolean;
+  pauseReason: string | null;
+};
+
+export async function getOutreachSendingStatus(): Promise<OutreachSendingStatus> {
+  await requireUser();
+  const { ensureDefaultSendingPlan, ensureSendingDay } = await import("@/lib/outreach/scheduler");
+  const plan = await ensureDefaultSendingPlan();
+  const now = new Date();
+  const prepared = await ensureSendingDay(plan, now);
+  const isPaused = prepared.day.paused || plan.status === "PAUSED" || prepared.health.mode === "paused";
+  const pauseReason =
+    prepared.day.pauseReason ||
+    plan.pauseReason ||
+    (prepared.health.mode === "paused" ? prepared.health.reason : null);
+
+  return {
+    planId: plan.id,
+    fromEmail: plan.fromEmail,
+    planStatus: plan.status as "ACTIVE" | "PAUSED",
+    planPauseReason: plan.pauseReason,
+    dayPaused: prepared.day.paused,
+    dayPauseReason: prepared.day.pauseReason,
+    sentToday: prepared.day.sent,
+    reservedToday: prepared.day.reserved,
+    allowedToday: prepared.day.allowed,
+    hardDailyCap: plan.hardDailyCap,
+    warmupDay: plan.warmupDay,
+    sendWindowStart: plan.sendWindowStart,
+    sendWindowEnd: plan.sendWindowEnd,
+    timezone: plan.timezone,
+    isPaused,
+    pauseReason: pauseReason || null,
+  };
+}
+
+export async function resumeOutreachSending() {
+  await requireUser();
+  const { ensureDefaultSendingPlan, ensureSendingDay } = await import("@/lib/outreach/scheduler");
+  const plan = await ensureDefaultSendingPlan();
+  await prisma.sendingPlan.updateMany({
+    where: { id: plan.id },
+    data: { status: "ACTIVE", pauseReason: null },
+  });
+  const now = new Date();
+  const prepared = await ensureSendingDay(plan, now);
+  await prisma.sendingDay.updateMany({
+    where: { id: prepared.day.id },
+    data: { paused: false, pauseReason: null },
+  });
+  revalidatePath("/campaigns");
+  revalidatePath("/");
+  return { ok: true, status: "ACTIVE", message: "Outreach sending resumed successfully." };
+}
+
+export async function pauseOutreachSending(reason = "Manual pause via CRM UI") {
+  await requireUser();
+  const { ensureDefaultSendingPlan, ensureSendingDay } = await import("@/lib/outreach/scheduler");
+  const plan = await ensureDefaultSendingPlan();
+  await prisma.sendingPlan.updateMany({
+    where: { id: plan.id },
+    data: { status: "PAUSED", pauseReason: reason },
+  });
+  const now = new Date();
+  const prepared = await ensureSendingDay(plan, now);
+  await prisma.sendingDay.updateMany({
+    where: { id: prepared.day.id },
+    data: { paused: true, pauseReason: reason },
+  });
+  revalidatePath("/campaigns");
+  revalidatePath("/");
+  return { ok: true, status: "PAUSED", message: "Outreach sending paused." };
 }

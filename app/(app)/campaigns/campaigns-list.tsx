@@ -1,10 +1,13 @@
-"use client";
-
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge, Button } from "@/components/ui";
-import { deleteCampaign } from "./actions";
+import {
+  deleteCampaign,
+  getOutreachSendingStatus,
+  resumeOutreachSending,
+  type OutreachSendingStatus,
+} from "./actions";
 import { TriggerOutreachModal } from "@/components/trigger-outreach-modal";
 
 type CampaignItem = {
@@ -33,6 +36,12 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [sendingStatus, setSendingStatus] = useState<OutreachSendingStatus | null>(null);
+  const [isResuming, setIsResuming] = useState(false);
+
+  useEffect(() => {
+    getOutreachSendingStatus().then(setSendingStatus).catch(() => null);
+  }, []);
 
   function handleDelete(id: string, name: string) {
     if (
@@ -68,6 +77,50 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
       {success && (
         <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
           {success}
+        </div>
+      )}
+
+      {/* Outreach Sending Paused Warning Banner */}
+      {sendingStatus?.isPaused && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <span className="text-xl leading-none">⚠️</span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-sm text-amber-950">Outbound Email Outreach is Currently PAUSED</span>
+                {sendingStatus.pauseReason && (
+                  <span className="rounded bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                    Reason: {sendingStatus.pauseReason}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Scheduled campaign emails will not send automatically until outreach is resumed. Click Resume below to reactivate.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isResuming}
+            onClick={async () => {
+              setIsResuming(true);
+              try {
+                await resumeOutreachSending();
+                const updated = await getOutreachSendingStatus();
+                setSendingStatus(updated);
+                setSuccess("✅ Outbound email outreach resumed successfully! Scheduled emails are now active.");
+                router.refresh();
+              } catch (err: any) {
+                setError(err.message || "Failed to resume outreach.");
+              } finally {
+                setIsResuming(false);
+              }
+            }}
+            className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-4 py-2 shadow-xs"
+          >
+            {isResuming ? "Resuming…" : "Resume Outreach Now"}
+          </Button>
         </div>
       )}
 
