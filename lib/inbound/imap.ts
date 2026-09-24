@@ -133,7 +133,7 @@ export async function syncImapReplies(options?: {
 
           if (isBounce) {
             try {
-              let messageSource: Buffer | null = msg.source ?? null;
+              let messageSource: any = msg.source ?? null;
               if (!messageSource) {
                 try {
                   const dl = await client.download(msg.uid.toString(), undefined, { uid: true });
@@ -312,7 +312,7 @@ export async function syncImapReplies(options?: {
           // Parse snippet and full body from message source
           let snippet = subject;
           let fullBody = subject;
-          let messageSource: Buffer | null = msg.source ?? null;
+          let messageSource: any = msg.source ?? null;
           if (!messageSource) {
             try {
               const dl = await client.download(msg.uid.toString(), undefined, { uid: true });
