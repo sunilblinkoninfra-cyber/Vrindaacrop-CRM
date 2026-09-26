@@ -310,7 +310,7 @@ Hello ${dbUser?.name || "Admin"}! Your WhatsApp is now linked to VrindaaCorp CRM
 
       // Completely clear authorized whatsapp number in database for all admin/owner accounts
       await prisma.user.updateMany({
-        where: { role: { in: ["owner", "admin"] } },
+        where: { role: { in: ["OWNER", "ADMIN"] } },
         data: { whatsappNumber: null },
       }).catch(() => null);
 
