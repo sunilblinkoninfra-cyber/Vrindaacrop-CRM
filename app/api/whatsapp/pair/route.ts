@@ -26,11 +26,19 @@ async function evoFetch(endpoint: string, options: RequestInit = {}) {
  * Fetches or generates a high-contrast, scannable PNG Data URL for WhatsApp pairing.
  * Handles auto-creation of missing instances and raw Baileys pairing strings.
  */
-async function fetchOrGenerateQr(instanceName: string): Promise<{
+async function fetchOrGenerateQr(instanceName: string, phoneNumber?: string): Promise<{
   base64Qr: string | null;
   pairingCode: string | null;
 }> {
-  let connectRes = await evoFetch(`/instance/connect/${instanceName}`);
+  let endpoint = `/instance/connect/${instanceName}`;
+  if (phoneNumber) {
+    const cleanDigits = phoneNumber.replace(/[^\d]/g, "");
+    if (cleanDigits.length >= 10) {
+      endpoint += `?number=${cleanDigits}`;
+    }
+  }
+
+  let connectRes = await evoFetch(endpoint);
 
   // If instance is missing (404/400) or fails, re-create the instance automatically
   if (!connectRes.ok) {
@@ -44,7 +52,9 @@ async function fetchOrGenerateQr(instanceName: string): Promise<{
         integration: "WHATSAPP-BAILEYS",
       }),
     });
-    connectRes = await evoFetch(`/instance/connect/${instanceName}`);
+    // Wait 500ms for instance initialization
+    await new Promise((r) => setTimeout(r, 500));
+    connectRes = await evoFetch(endpoint);
   }
 
   if (!connectRes.ok) {
@@ -56,36 +66,36 @@ async function fetchOrGenerateQr(instanceName: string): Promise<{
   // Extract raw base64 or code string across potential schema variants
   const rawBase64 = connectData?.base64 || connectData?.qrcode?.base64 || null;
   const rawCode = connectData?.code || connectData?.qrcode?.code || connectData?.pairingCode || null;
-  const pairingCode = connectData?.pairingCode || connectData?.qrcode?.pairingCode || null;
+  const pairingCode = connectData?.pairingCode || connectData?.qrcode?.pairingCode || connectData?.code || null;
 
-  // 1. If raw WhatsApp pairing code string (e.g. "2@...") exists, convert to high-contrast 400x400 PNG Data URL
+  // 1. Prioritize native pre-rendered base64 PNG from Evolution API Baileys engine
+  if (rawBase64 && typeof rawBase64 === "string" && rawBase64.length > 50) {
+    let clean = rawBase64.trim();
+    if (!clean.startsWith("data:image/")) {
+      clean = `data:image/png;base64,${clean}`;
+    }
+    return { base64Qr: clean, pairingCode: typeof pairingCode === "string" && pairingCode.length < 15 ? pairingCode : null };
+  }
+
+  // 2. Fallback to generating from raw Baileys string if base64 is missing
   if (rawCode && typeof rawCode === "string" && rawCode.length > 5) {
     try {
       const generatedPng = await QRCode.toDataURL(rawCode, {
-        errorCorrectionLevel: "M",
-        margin: 4, // Strict 4-module quiet zone (white margin) required by WhatsApp scanner
+        errorCorrectionLevel: "L",
+        margin: 4,
         width: 400,
         color: {
           dark: "#000000",
           light: "#ffffff",
         },
       });
-      return { base64Qr: generatedPng, pairingCode };
+      return { base64Qr: generatedPng, pairingCode: typeof pairingCode === "string" && pairingCode.length < 15 ? pairingCode : null };
     } catch (err: any) {
       console.warn("[QRCode generation from raw string failed]:", err.message);
     }
   }
 
-  // 2. If base64 PNG string exists
-  if (rawBase64 && typeof rawBase64 === "string") {
-    let clean = rawBase64.trim();
-    if (!clean.startsWith("data:image/")) {
-      clean = `data:image/png;base64,${clean}`;
-    }
-    return { base64Qr: clean, pairingCode };
-  }
-
-  return { base64Qr: null, pairingCode };
+  return { base64Qr: null, pairingCode: typeof pairingCode === "string" && pairingCode.length < 15 ? pairingCode : null };
 }
 
 /**
@@ -238,7 +248,9 @@ export async function POST(req: NextRequest) {
 
     if (action === "recreate_instance" || action === "reset_instance") {
       try {
+        await evoFetch(`/instance/logout/${INSTANCE}`, { method: "DELETE" }).catch(() => null);
         await evoFetch(`/instance/delete/${INSTANCE}`, { method: "DELETE" }).catch(() => null);
+        await new Promise((r) => setTimeout(r, 1000));
       } catch {}
 
       await evoFetch(`/instance/create`, {
@@ -251,7 +263,8 @@ export async function POST(req: NextRequest) {
         }),
       });
 
-      const qrResult = await fetchOrGenerateQr(INSTANCE);
+      await new Promise((r) => setTimeout(r, 500));
+      const qrResult = await fetchOrGenerateQr(INSTANCE, body.phone);
       return NextResponse.json({
         ok: true,
         base64Qr: qrResult.base64Qr,
