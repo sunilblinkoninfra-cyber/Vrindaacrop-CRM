@@ -14,7 +14,9 @@ import { env } from "@/lib/env";
  */
 
 export function isAiConfigured(): boolean {
-  if (env.ai.provider === "local") return Boolean(env.ai.localBaseUrl && env.ai.localModel);
+  if (env.ai.provider === "local" || env.ai.provider === "hermes") {
+    return Boolean(env.ai.localBaseUrl && env.ai.localModel);
+  }
   return Boolean(env.ai.apiKey);
 }
 
@@ -38,7 +40,7 @@ export async function chatJSON<T = unknown>(args: {
   if (!isAiConfigured()) return null;
   try {
     const raw =
-      env.ai.provider === "local"
+      env.ai.provider === "local" || env.ai.provider === "hermes"
         ? await localChat(args.system, args.user, args.schema, args.maxTokens ?? 1200)
         : await anthropicChat(args.system, args.user, args.schema, args.maxTokens ?? 1200);
     if (!raw) return null;

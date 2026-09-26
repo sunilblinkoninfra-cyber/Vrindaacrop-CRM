@@ -46,12 +46,12 @@ export const env = {
   },
 
   ai: {
-    // "anthropic" (hosted) or "local" (Ollama / vLLM / LM Studio)
-    provider: (process.env.AI_PROVIDER ?? "local") as "anthropic" | "local",
+    // "anthropic" (hosted), "local" (Ollama / vLLM / LM Studio), or "hermes" (Nous Hermes 3 Llama Agent)
+    provider: (process.env.AI_PROVIDER ?? "hermes") as "anthropic" | "local" | "hermes",
     apiKey: process.env.ANTHROPIC_API_KEY ?? "",
-    model: process.env.AI_MODEL ?? "llama3.2:3b",
+    model: process.env.AI_MODEL ?? "hermes3:8b",
     localBaseUrl: process.env.LOCAL_AI_BASE_URL ?? "http://127.0.0.1:11434", // Ollama base URL
-    localModel: process.env.LOCAL_AI_MODEL ?? process.env.AI_MODEL ?? "llama3.2:3b",
+    localModel: process.env.LOCAL_AI_MODEL ?? process.env.AI_MODEL ?? "hermes3:8b",
   },
 
   websearch: {

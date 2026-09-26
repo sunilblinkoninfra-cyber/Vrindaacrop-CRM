@@ -3,6 +3,7 @@ import { getSessionUser, isOwnerOrAdmin } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { sendWhatsAppTextMessage } from "@/lib/whatsapp";
+import QRCode from "qrcode";
 
 const INSTANCE = env.whatsapp.evolutionInstanceName || "vrindaacorp-crm";
 const EVO_URL = env.whatsapp.evolutionApiUrl || "http://127.0.0.1:8080";
@@ -19,6 +20,72 @@ async function evoFetch(endpoint: string, options: RequestInit = {}) {
     },
     cache: "no-store",
   });
+}
+
+/**
+ * Fetches or generates a high-contrast, scannable PNG Data URL for WhatsApp pairing.
+ * Handles auto-creation of missing instances and raw Baileys pairing strings.
+ */
+async function fetchOrGenerateQr(instanceName: string): Promise<{
+  base64Qr: string | null;
+  pairingCode: string | null;
+}> {
+  let connectRes = await evoFetch(`/instance/connect/${instanceName}`);
+
+  // If instance is missing (404/400) or fails, re-create the instance automatically
+  if (!connectRes.ok) {
+    console.log(`[Evolution API] Instance ${instanceName} missing or closed. Auto-creating instance...`);
+    await evoFetch(`/instance/create`, {
+      method: "POST",
+      body: JSON.stringify({
+        instanceName,
+        token: EVO_KEY,
+        qrcode: true,
+        integration: "WHATSAPP-BAILEYS",
+      }),
+    });
+    connectRes = await evoFetch(`/instance/connect/${instanceName}`);
+  }
+
+  if (!connectRes.ok) {
+    return { base64Qr: null, pairingCode: null };
+  }
+
+  const connectData = await connectRes.json().catch(() => ({}));
+
+  // Extract raw base64 or code string across potential schema variants
+  const rawBase64 = connectData?.base64 || connectData?.qrcode?.base64 || null;
+  const rawCode = connectData?.code || connectData?.qrcode?.code || connectData?.pairingCode || null;
+  const pairingCode = connectData?.pairingCode || connectData?.qrcode?.pairingCode || null;
+
+  // 1. If raw WhatsApp pairing code string (e.g. "2@...") exists, convert to high-contrast 400x400 PNG Data URL
+  if (rawCode && typeof rawCode === "string" && rawCode.length > 5) {
+    try {
+      const generatedPng = await QRCode.toDataURL(rawCode, {
+        errorCorrectionLevel: "M",
+        margin: 4, // Strict 4-module quiet zone (white margin) required by WhatsApp scanner
+        width: 400,
+        color: {
+          dark: "#000000",
+          light: "#ffffff",
+        },
+      });
+      return { base64Qr: generatedPng, pairingCode };
+    } catch (err: any) {
+      console.warn("[QRCode generation from raw string failed]:", err.message);
+    }
+  }
+
+  // 2. If base64 PNG string exists
+  if (rawBase64 && typeof rawBase64 === "string") {
+    let clean = rawBase64.trim();
+    if (!clean.startsWith("data:image/")) {
+      clean = `data:image/png;base64,${clean}`;
+    }
+    return { base64Qr: clean, pairingCode };
+  }
+
+  return { base64Qr: null, pairingCode };
 }
 
 /**
@@ -41,6 +108,7 @@ export async function GET(req: NextRequest) {
     const isPoll = req.nextUrl.searchParams.get("poll") === "true";
 
     let state = "close";
+    let connectedPhone = dbUser?.whatsappNumber || "";
 
     // 1. Check live connection state (Lightweight & Safe)
     try {
@@ -48,6 +116,22 @@ export async function GET(req: NextRequest) {
       if (stateRes.ok) {
         const stateData = await stateRes.json();
         state = stateData?.instance?.state || "close";
+
+        // Extract phone number of the linked WhatsApp account upon successful scan
+        const rawOwner = stateData?.instance?.owner || stateData?.instance?.ownerJid || stateData?.owner || null;
+        if (rawOwner && typeof rawOwner === "string") {
+          const cleanDigits = rawOwner.replace(/@.*$/, "").replace(/[^\d]/g, "");
+          if (cleanDigits && cleanDigits.length >= 10) {
+            connectedPhone = `+${cleanDigits}`;
+            // Auto-authorize linked number in database for the logged-in user
+            if (user.id && dbUser?.whatsappNumber !== connectedPhone) {
+              await prisma.user.update({
+                where: { id: user.id },
+                data: { whatsappNumber: connectedPhone },
+              }).catch(() => undefined);
+            }
+          }
+        }
       }
     } catch (err: any) {
       console.warn("[Evolution API connectionState check failed]:", err.message);
@@ -59,7 +143,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         state,
-        phone: dbUser?.whatsappNumber || "",
+        phone: connectedPhone,
         email: dbUser?.email || user.email,
         role: dbUser?.role || user.role,
         gateway: env.whatsapp.gateway,
@@ -68,25 +152,22 @@ export async function GET(req: NextRequest) {
 
     // 2. Initial load or explicit QR fetch: fetch QR code only if instance is not already open
     let base64Qr: string | null = null;
+    let pairingCode: string | null = null;
+
     if (state !== "open") {
-      try {
-        const connectRes = await evoFetch(`/instance/connect/${INSTANCE}`);
-        if (connectRes.ok) {
-          const connectData = await connectRes.json();
-          base64Qr = connectData?.base64 || null;
-        }
-      } catch (err: any) {
-        console.warn("[Evolution API connect fetch failed]:", err.message);
-      }
+      const qrResult = await fetchOrGenerateQr(INSTANCE);
+      base64Qr = qrResult.base64Qr;
+      pairingCode = qrResult.pairingCode;
     }
 
     return NextResponse.json({
       ok: true,
       state,
-      phone: dbUser?.whatsappNumber || "",
+      phone: connectedPhone,
       email: dbUser?.email || user.email,
       role: dbUser?.role || user.role,
       base64Qr,
+      pairingCode,
       gateway: env.whatsapp.gateway,
     });
   } catch (err: any) {
@@ -95,7 +176,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST: Handles QR refresh, test message, phone save, and disconnect
+ * POST: Handles QR refresh, test message, phone save, instance reset, and disconnect
  */
 export async function POST(req: NextRequest) {
   try {
@@ -115,28 +196,51 @@ export async function POST(req: NextRequest) {
     if (action === "save_phone") {
       const phone = String(body.phone || "").trim();
       const cleanPhone = phone.replace(/[^\d+]/g, "");
+      const formatted = cleanPhone.startsWith("+") ? cleanPhone : cleanPhone ? `+${cleanPhone}` : "";
       await prisma.user.update({
         where: { id: user.id },
-        data: { whatsappNumber: cleanPhone.startsWith("+") ? cleanPhone : `+${cleanPhone}` },
+        data: { whatsappNumber: formatted || null },
       });
-      return NextResponse.json({ ok: true, phone: cleanPhone, message: "Phone number updated successfully." });
+      return NextResponse.json({ ok: true, phone: formatted, message: "Authorized notification phone updated." });
     }
 
     if (action === "refresh_qr") {
-      // Cleanly fetch fresh QR code from Evolution API
-      const res = await evoFetch(`/instance/connect/${INSTANCE}`);
-      const data = await res.json();
-
+      const qrResult = await fetchOrGenerateQr(INSTANCE);
       return NextResponse.json({
         ok: true,
-        base64Qr: data.base64 || null,
+        base64Qr: qrResult.base64Qr,
+        pairingCode: qrResult.pairingCode,
+      });
+    }
+
+    if (action === "recreate_instance" || action === "reset_instance") {
+      try {
+        await evoFetch(`/instance/delete/${INSTANCE}`, { method: "DELETE" }).catch(() => null);
+      } catch {}
+
+      await evoFetch(`/instance/create`, {
+        method: "POST",
+        body: JSON.stringify({
+          instanceName: INSTANCE,
+          token: EVO_KEY,
+          qrcode: true,
+          integration: "WHATSAPP-BAILEYS",
+        }),
+      });
+
+      const qrResult = await fetchOrGenerateQr(INSTANCE);
+      return NextResponse.json({
+        ok: true,
+        base64Qr: qrResult.base64Qr,
+        pairingCode: qrResult.pairingCode,
+        message: "WhatsApp instance reset & recreated successfully.",
       });
     }
 
     if (action === "send_test") {
-      const targetPhone = body.phone || dbUser?.whatsappNumber || "+918287868122";
+      const targetPhone = body.phone || dbUser?.whatsappNumber;
       if (!targetPhone) {
-        return NextResponse.json({ error: "No recipient phone number provided or configured." }, { status: 400 });
+        return NextResponse.json({ error: "No authorized WhatsApp phone number linked yet. Please scan the QR code to link your device." }, { status: 400 });
       }
 
       const testMsg = `🤖 *VrindaaCorp AI Agent Status Check*

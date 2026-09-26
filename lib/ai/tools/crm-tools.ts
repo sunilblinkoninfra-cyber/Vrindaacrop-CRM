@@ -158,6 +158,36 @@ export const CRM_TOOL_DEFINITIONS: CrmToolDefinition[] = [
       },
     },
   },
+  {
+    name: "enroll_valid_leads",
+    description: "Scan unassigned or new leads, enforce strict VALID lead filtering (ignoring UNKNOWN, RISKY, CATCH_ALL, INVALID, DISPOSABLE), and enroll them into outreach.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Maximum number of VALID leads to enroll (default: 50)" },
+        sector: { type: "string", description: "Optional industry sector filter (e.g. Corporate, Healthcare)" },
+      },
+    },
+  },
+  {
+    name: "audit_deliverability",
+    description: "Audit 14-day bounce rates and deliverability metrics for vrindaacorp.com, ensuring bounce rate stays under 2.0% safety limit.",
+    parameters: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "search_crm_knowledge",
+    description: "Search VrindaaCorp services knowledge base, sector templates, and FM services documentation for customer inquiries.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query or service topic (e.g. HVAC maintenance, housekeeping SLAs, security)" },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 /**
@@ -452,6 +482,84 @@ export async function executeCrmTool(
           subject: draft.draftSubject,
           version: draft.version,
           message: `Email successfully dispatched to ${draft.lead.email}.`,
+        });
+      }
+
+      case "enroll_valid_leads": {
+        if (userRole === "AGENT") {
+          return JSON.stringify({ error: "Permission denied. Only Owner or Admin can enroll leads." });
+        }
+        const limit = Math.max(1, Math.min(Number(args.limit) || 50, 200));
+        const sector = args.sector ? String(args.sector).trim() : undefined;
+
+        // STRICT ENFORCEMENT OF AGENTS.MD RULE: VALID leads only!
+        const validLeads = await prisma.lead.findMany({
+          where: {
+            validationStatus: ValidationStatus.VALID,
+            isSuppressed: false,
+            stage: LeadStage.NEW,
+            ...(sector ? { sector: { contains: sector, mode: "insensitive" } } : {}),
+          },
+          take: limit,
+          select: { id: true, email: true, company: true, sector: true },
+        });
+
+        if (validLeads.length === 0) {
+          return JSON.stringify({
+            enrolledCount: 0,
+            message: "No unassigned VALID leads found matching criteria. (Enforced VALID-only policy).",
+          });
+        }
+
+        // Mark leads ready for initial outreach
+        await prisma.lead.updateMany({
+          where: { id: { in: validLeads.map((l) => l.id) } },
+          data: { stage: LeadStage.CONTACTED },
+        });
+
+        return JSON.stringify({
+          enrolledCount: validLeads.length,
+          sector: sector || "All sectors",
+          status: "Enrolled in Outreach (VALID Only Enforced)",
+          leadsSample: validLeads.slice(0, 5).map((l) => `${l.company} (${l.email})`),
+        });
+      }
+
+      case "audit_deliverability": {
+        const strategy = await evaluateBiWeeklyStrategy();
+        const bounceRate = Number(strategy.rollingBounceRate || 0);
+        return JSON.stringify({
+          domain: "vrindaacorp.com",
+          fourteenDayBounceRate: `${bounceRate.toFixed(2)}%`,
+          safetyThreshold: "2.0%",
+          healthStatus: bounceRate < 2.0 ? "Pristine / Healthy" : "Warning - Bounces High",
+          domainStatus: strategy.domainStatus,
+          currentCap: strategy.currentCap,
+          proposedCap: strategy.proposedCap,
+          recommendation: strategy.scalingRecommendation,
+        });
+      }
+
+      case "search_crm_knowledge": {
+        const query = String(args.query || "").trim();
+        const { COMPANY_CONTEXT } = await import("@/lib/ai/generate");
+        const templates = await prisma.emailTemplate.findMany({
+          where: {
+            OR: [
+              { name: { contains: query, mode: "insensitive" } },
+              { subjectA: { contains: query, mode: "insensitive" } },
+              { html: { contains: query, mode: "insensitive" } },
+              { aiBrief: { contains: query, mode: "insensitive" } },
+            ],
+          },
+          take: 3,
+          select: { name: true, subjectA: true, aiBrief: true },
+        });
+
+        return JSON.stringify({
+          companyOverview: COMPANY_CONTEXT,
+          mandatoryBookingUrl: "https://calendly.com/vrindaacorp-sales/30min",
+          matchingTemplates: templates,
         });
       }
 

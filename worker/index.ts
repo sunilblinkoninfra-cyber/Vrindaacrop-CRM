@@ -8,6 +8,7 @@ import { runContractReminders } from "@/lib/outreach/contract-reminders";
 import { runEnrichment } from "@/lib/ai/contract";
 import { runEmailRevalidation } from "@/lib/outreach/revalidate-leads";
 import { syncImapReplies } from "@/lib/inbound/imap";
+import { runAutonomousHermesLoop } from "@/lib/ai/autonomous-loop";
 
 const SENDER_INTERVAL_MS = Math.max(1, env.sending.schedulerIntervalMinutes) * 60_000;
 const REPLIES_INTERVAL_MS = 30 * 1000; // Poll inbox every 30 seconds
@@ -50,12 +51,13 @@ async function tickMaintenance() {
   maintenanceRunning = true;
   const started = new Date();
   try {
-    const [escalation, company, enrichment, contracts, revalidation] = await Promise.all([
+    const [escalation, company, enrichment, contracts, revalidation, hermesLoop] = await Promise.all([
       runEscalation(),
       runCompanyAlerts(),
       runEnrichment(10),
       runContractReminders(),
       runEmailRevalidation(),
+      runAutonomousHermesLoop(),
     ]);
     await prisma.jobRun.create({
       data: {
@@ -63,11 +65,11 @@ async function tickMaintenance() {
         startedAt: started,
         finishedAt: new Date(),
         ok: true,
-        detail: `escalated=${escalation.escalated} company=${company.replies}/${company.news} enriched=${enrichment.processed} contractReminders=${contracts.reminded} revalidated=${revalidation.processed}/${revalidation.changed}`,
+        detail: `escalated=${escalation.escalated} company=${company.replies}/${company.news} enriched=${enrichment.processed} contractReminders=${contracts.reminded} revalidated=${revalidation.processed}/${revalidation.changed} hermesEnrolled=${hermesLoop.enrolled}`,
       },
     });
-    if (escalation.escalated || company.replies || company.news || contracts.reminded) {
-      console.log(`[maintenance] escalated=${escalation.escalated} company=${company.replies}/${company.news} contractReminders=${contracts.reminded}`);
+    if (escalation.escalated || company.replies || company.news || contracts.reminded || hermesLoop.enrolled) {
+      console.log(`[maintenance] escalated=${escalation.escalated} company=${company.replies}/${company.news} contractReminders=${contracts.reminded} hermesEnrolled=${hermesLoop.enrolled}`);
     }
   } catch (e) {
     console.error("[maintenance] error", e);

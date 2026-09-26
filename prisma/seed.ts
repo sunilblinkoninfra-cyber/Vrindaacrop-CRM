@@ -36,7 +36,6 @@ async function main() {
       name: "Business Owner",
       passwordHash,
       role: Role.OWNER,
-      whatsappNumber: "+919999999999",
     },
   });
 

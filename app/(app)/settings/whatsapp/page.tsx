@@ -9,6 +9,7 @@ interface WhatsAppStatus {
   email: string;
   role: string;
   base64Qr: string | null;
+  pairingCode?: string | null;
   gateway: string;
 }
 
@@ -104,7 +105,7 @@ export default function WhatsAppSettingsPage() {
       if (!res.ok) throw new Error("Failed to load WhatsApp configuration");
       const json = await res.json();
       setData(json);
-      setPhoneInput(json.phone || "+918287868122");
+      setPhoneInput(json.phone || "");
       setCountdown(QR_REFRESH_INTERVAL);
     } catch (err: any) {
       setFeedback({ text: err.message || "Failed to communicate with CRM server", error: true });
@@ -181,9 +182,31 @@ export default function WhatsAppSettingsPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to refresh QR code");
-      setData((prev) => (prev ? { ...prev, base64Qr: json.base64Qr, state: "connecting" } : null));
+      setData((prev) => (prev ? { ...prev, base64Qr: json.base64Qr, pairingCode: json.pairingCode, state: "connecting" } : null));
       setCountdown(QR_REFRESH_INTERVAL);
-      setFeedback({ text: "Generated fresh QR Code! Ready to scan." });
+      setFeedback({ text: "Generated high-contrast, fresh QR Code! Ready to scan." });
+    } catch (err: any) {
+      setFeedback({ text: err.message, error: true });
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  // Hard Reset / Re-create instance session
+  const handleResetSession = async () => {
+    try {
+      setQrLoading(true);
+      setFeedback(null);
+      const res = await fetch("/api/whatsapp/pair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "recreate_instance" }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to reset session");
+      setData((prev) => (prev ? { ...prev, base64Qr: json.base64Qr, pairingCode: json.pairingCode, state: "connecting" } : null));
+      setCountdown(QR_REFRESH_INTERVAL);
+      setFeedback({ text: "Re-created WhatsApp session! Scannable QR code ready." });
     } catch (err: any) {
       setFeedback({ text: err.message, error: true });
     } finally {
@@ -363,28 +386,39 @@ export default function WhatsAppSettingsPage() {
                   {qrLoading || loading ? (
                     <div className="flex h-64 w-64 flex-col items-center justify-center gap-3 text-sm text-slate-500">
                       <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
-                      <span>Generating fresh QR code...</span>
+                      <span>Generating high-contrast QR code...</span>
                     </div>
                   ) : data?.base64Qr ? (
-                    <div className="relative">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={data.base64Qr}
-                        alt="WhatsApp Linking QR Code"
-                        width={280}
-                        height={280}
-                        className="rounded-lg shadow-md bg-white p-2"
-                      />
-                      {countdown === 0 && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-white/90 p-4 text-center backdrop-blur-xs">
-                          <p className="text-xs font-semibold text-slate-800">QR Code Expired</p>
-                          <p className="mt-1 text-[11px] text-slate-500">Click below to generate an updated QR code</p>
-                          <button
-                            onClick={handleRefreshQr}
-                            className="mt-3 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-500"
-                          >
-                            ↻ Generate Fresh QR
-                          </button>
+                    <div className="flex flex-col items-center space-y-4">
+                      <div className="relative rounded-2xl bg-white p-5 shadow-lg border border-slate-200 ring-1 ring-slate-900/5">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={data.base64Qr}
+                          alt="WhatsApp Linking QR Code"
+                          width={320}
+                          height={320}
+                          className="rounded-lg bg-white block"
+                        />
+                        {countdown === 0 && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl bg-white/95 p-4 text-center backdrop-blur-xs">
+                            <p className="text-xs font-semibold text-slate-800">QR Code Expired</p>
+                            <p className="mt-1 text-[11px] text-slate-500">Click below to generate an updated QR code</p>
+                            <button
+                              onClick={handleRefreshQr}
+                              className="mt-3 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-500"
+                            >
+                              ↻ Generate Fresh QR
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {data.pairingCode && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-center">
+                          <span className="text-[11px] font-medium text-emerald-800 uppercase tracking-wider block">Or Link via Pairing Code on Phone</span>
+                          <span className="font-mono text-base font-bold text-emerald-950 tracking-widest mt-1 block select-all">
+                            {data.pairingCode}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -401,10 +435,10 @@ export default function WhatsAppSettingsPage() {
                   )}
 
                   {/* QR Controls & Countdown */}
-                  <div className="mt-4 flex flex-wrap items-center justify-center gap-3 text-xs">
+                  <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-xs">
                     {countdown > 0 && data?.base64Qr && (
-                      <span className="text-slate-500">
-                        Valid for: <span className="font-mono font-semibold text-slate-700">{countdown}s</span>
+                      <span className="text-slate-500 font-medium">
+                        Expires in: <span className="font-mono font-semibold text-slate-800">{countdown}s</span>
                       </span>
                     )}
 
@@ -414,6 +448,15 @@ export default function WhatsAppSettingsPage() {
                       className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-50"
                     >
                       ↻ Refresh QR Code
+                    </button>
+
+                    <button
+                      onClick={handleResetSession}
+                      disabled={qrLoading}
+                      title="Re-creates instance on VPS if QR code fails to scan"
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 shadow-xs hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      ⚡ Re-create Instance
                     </button>
                   </div>
                 </div>
