@@ -110,25 +110,48 @@ export async function GET(req: NextRequest) {
     let state = "close";
     let connectedPhone = dbUser?.whatsappNumber || "";
 
-    // 1. Check live connection state (Lightweight & Safe)
+    // 1. Check live connection state and detect logged-out 401 sessions
     try {
       const stateRes = await evoFetch(`/instance/connectionState/${INSTANCE}`);
       if (stateRes.ok) {
         const stateData = await stateRes.json();
         state = stateData?.instance?.state || "close";
 
+        // Check if session was logged out on phone (disconnectionReasonCode: 401)
+        try {
+          const fetchRes = await evoFetch(`/instance/fetchInstances`);
+          if (fetchRes.ok) {
+            const list = await fetchRes.json();
+            const inst = Array.isArray(list) ? list.find((i: any) => i.name === INSTANCE) : null;
+            if (inst) {
+              const reasonCode = inst.disconnectionReasonCode;
+              const disObjStr = JSON.stringify(inst.disconnectionObject || "");
+              if (reasonCode === 401 || reasonCode === 403 || disObjStr.includes("Log out")) {
+                console.warn(`[Evolution API] Detected logged out instance ${INSTANCE} (Code ${reasonCode}). Resetting state to close.`);
+                state = "close";
+                // Clear stale 401 session so fresh QR code can be generated
+                await evoFetch(`/instance/logout/${INSTANCE}`, { method: "DELETE" }).catch(() => null);
+              }
+            }
+          }
+        } catch {
+          // Ignore fetchInstances sub-check error
+        }
+
         // Extract phone number of the linked WhatsApp account upon successful scan
-        const rawOwner = stateData?.instance?.owner || stateData?.instance?.ownerJid || stateData?.owner || null;
-        if (rawOwner && typeof rawOwner === "string") {
-          const cleanDigits = rawOwner.replace(/@.*$/, "").replace(/[^\d]/g, "");
-          if (cleanDigits && cleanDigits.length >= 10) {
-            connectedPhone = `+${cleanDigits}`;
-            // Auto-authorize linked number in database for the logged-in user
-            if (user.id && dbUser?.whatsappNumber !== connectedPhone) {
-              await prisma.user.update({
-                where: { id: user.id },
-                data: { whatsappNumber: connectedPhone },
-              }).catch(() => undefined);
+        if (state === "open") {
+          const rawOwner = stateData?.instance?.owner || stateData?.instance?.ownerJid || stateData?.owner || null;
+          if (rawOwner && typeof rawOwner === "string") {
+            const cleanDigits = rawOwner.replace(/@.*$/, "").replace(/[^\d]/g, "");
+            if (cleanDigits && cleanDigits.length >= 10) {
+              connectedPhone = `+${cleanDigits}`;
+              // Auto-authorize linked number in database for the logged-in user
+              if (user.id && dbUser?.whatsappNumber !== connectedPhone) {
+                await prisma.user.update({
+                  where: { id: user.id },
+                  data: { whatsappNumber: connectedPhone },
+                }).catch(() => undefined);
+              }
             }
           }
         }
