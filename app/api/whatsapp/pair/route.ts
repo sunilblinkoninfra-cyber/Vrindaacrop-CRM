@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
         const stateData = await stateRes.json();
         state = stateData?.instance?.state || "close";
 
-        // Check if session was logged out on phone (disconnectionReasonCode: 401)
+        // Check instance list for status, disconnection codes, and owner phone JID
         try {
           const fetchRes = await evoFetch(`/instance/fetchInstances`);
           if (fetchRes.ok) {
@@ -142,28 +142,26 @@ export async function GET(req: NextRequest) {
                 // Clear stale 401 session so fresh QR code can be generated
                 await evoFetch(`/instance/logout/${INSTANCE}`, { method: "DELETE" }).catch(() => null);
               }
+
+              // Extract phone number of the linked WhatsApp account upon successful scan from inst.ownerJid
+              const rawOwner = inst.ownerJid || inst.owner || inst.number || stateData?.instance?.owner || stateData?.instance?.ownerJid || null;
+              if (rawOwner && typeof rawOwner === "string") {
+                const cleanDigits = rawOwner.replace(/@.*$/, "").replace(/[^\d]/g, "");
+                if (cleanDigits && cleanDigits.length >= 10) {
+                  connectedPhone = `+${cleanDigits}`;
+                  // Auto-authorize linked number in database for the logged-in user
+                  if (user.id && dbUser?.whatsappNumber !== connectedPhone) {
+                    await prisma.user.update({
+                      where: { id: user.id },
+                      data: { whatsappNumber: connectedPhone },
+                    }).catch(() => undefined);
+                  }
+                }
+              }
             }
           }
         } catch {
           // Ignore fetchInstances sub-check error
-        }
-
-        // Extract phone number of the linked WhatsApp account upon successful scan
-        if (state === "open") {
-          const rawOwner = stateData?.instance?.owner || stateData?.instance?.ownerJid || stateData?.owner || null;
-          if (rawOwner && typeof rawOwner === "string") {
-            const cleanDigits = rawOwner.replace(/@.*$/, "").replace(/[^\d]/g, "");
-            if (cleanDigits && cleanDigits.length >= 10) {
-              connectedPhone = `+${cleanDigits}`;
-              // Auto-authorize linked number in database for the logged-in user
-              if (user.id && dbUser?.whatsappNumber !== connectedPhone) {
-                await prisma.user.update({
-                  where: { id: user.id },
-                  data: { whatsappNumber: connectedPhone },
-                }).catch(() => undefined);
-              }
-            }
-          }
         }
       }
     } catch (err: any) {
