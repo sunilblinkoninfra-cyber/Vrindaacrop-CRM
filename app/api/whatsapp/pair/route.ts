@@ -303,8 +303,18 @@ Hello ${dbUser?.name || "Admin"}! Your WhatsApp is now linked to VrindaaCorp CRM
     }
 
     if (action === "disconnect" || action === "logout") {
-      await evoFetch(`/instance/logout/${INSTANCE}`, { method: "DELETE" });
-      return NextResponse.json({ ok: true, message: "WhatsApp device unlinked successfully." });
+      try {
+        await evoFetch(`/instance/logout/${INSTANCE}`, { method: "DELETE" }).catch(() => null);
+        await evoFetch(`/instance/delete/${INSTANCE}`, { method: "DELETE" }).catch(() => null);
+      } catch {}
+
+      // Completely clear authorized whatsapp number in database for all admin/owner accounts
+      await prisma.user.updateMany({
+        where: { role: { in: ["owner", "admin"] } },
+        data: { whatsappNumber: null },
+      }).catch(() => null);
+
+      return NextResponse.json({ ok: true, message: "WhatsApp device unlinked successfully and number cleared." });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
