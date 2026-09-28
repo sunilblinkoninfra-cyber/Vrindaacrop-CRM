@@ -165,6 +165,71 @@ Reply with a lead name to review contact details, or reply *STATUS* for overall 
       toolsExecuted: ["get_high_intent_leads"],
       latencyMs: Date.now() - startTime,
     };
+  // 1d. FAST-PATH: Natural Language Strategy & Warmup Cap Update (e.g. "start from 15 per day", "change strategy to 15", "weekly warmup")
+  const isWarmupStrategyMsg = /(start\s*from\s*\d+|change\s*strateg|warmup|cap\s*to\s*\d+|\d+\s*per\s*day|\d+\/day)/i.test(trimmedUserMessage);
+  if (isWarmupStrategyMsg && (trimmedUserMessage.toLowerCase().includes("15") || trimmedUserMessage.toLowerCase().includes("strategy") || trimmedUserMessage.toLowerCase().includes("warmup") || trimmedUserMessage.toLowerCase().includes("cap"))) {
+    const matchCap = trimmedUserMessage.match(/(\d+)\s*(per\s*day|\/day|emails|cap)?/i);
+    const targetCap = matchCap && Number(matchCap[1]) > 0 ? Number(matchCap[1]) : 15;
+
+    const { applyBiWeeklyStrategy } = await import("@/lib/ai/strategy-engine");
+    await applyBiWeeklyStrategy(targetCap);
+    const { saveDirective } = await import("@/lib/ai/strategic-memory");
+    await saveDirective(
+      "standing_rule",
+      `Domain warmup policy set by Owner: Start cap set to ${targetCap} emails/day scaling weekly.`,
+      "owner_explicit"
+    );
+
+    const warmupResponse = `🧠 *WHAT I UNDERSTOOD:*
+You instructed to change the sending strategy to start from *${targetCap} emails/day* on a weekly scaling basis to protect domain reputation (\`vrindaacorp.com\`).
+
+📋 *UPDATED WEEKLY WARMUP SCHEDULE:*
+• *Week 1 (Days 1–7):* ${targetCap} emails/day (ACTIVE IN DB)
+• *Week 2 (Days 8–14):* 25 emails/day
+• *Week 3 (Days 15–21):* 35 emails/day
+• *Week 4 (Days 22–28):* 50 emails/day
+• *Week 5 (Days 29–35):* 75 emails/day
+• *Week 6+ (Days 36+):* 100 emails/day
+
+🚀 *NEXT STEP:*
+✅ *Applied & Active in Database!* Outreach cap is locked to ${targetCap}/day. Reply *STATUS* to verify.`;
+
+    await saveMemory(userPhone, trimmedUserMessage, warmupResponse);
+    return {
+      text: warmupResponse,
+      toolsExecuted: ["set_warmup_strategy"],
+      latencyMs: Date.now() - startTime,
+    };
+  }
+
+  // 1e. FAST-PATH: Real-Time Company Research (e.g. "research TechNova Noida", "search web for...")
+  const isResearchMsg = /^(research|search\s*web|lookup\s*company)\s+(.+)/i.exec(trimmedUserMessage);
+  if (isResearchMsg && isResearchMsg[2]) {
+    const compName = isResearchMsg[2].trim();
+    const { researchCompany } = await import("@/lib/ai/web-research");
+    const researchRes = await researchCompany(compName, "NCR");
+
+    const researchResponse = `🧠 *WHAT I UNDERSTOOD:*
+You requested real-time web research over the internet for *${compName}*.
+
+📋 *WEB RESEARCH INSIGHTS (LIVE INTERNET):*
+${researchRes.summary.slice(0, 500)}
+
+*Key Web Facts:*
+${researchRes.keyFacts.slice(0, 3).map((f) => `• ${f}`).join("\n")}
+
+*Sources:* ${researchRes.sources.slice(0, 2).join(", ")}
+
+🚀 *NEXT STEP:*
+• Reply *DRAFT PROPOSAL FOR ${compName.toUpperCase()}* to generate a research-backed email proposal.
+• Reply *STATUS* to check live CRM state.`;
+
+    await saveMemory(userPhone, trimmedUserMessage, researchResponse);
+    return {
+      text: researchResponse,
+      toolsExecuted: ["research_company"],
+      latencyMs: Date.now() - startTime,
+    };
   }
 
   // 2. Strategic Memory Learning

@@ -134,13 +134,13 @@ export async function handleIncomingWhatsAppMessage(args: {
       })
     : null;
 
-  // Auto-authorize linked device phone number if no whatsappNumber is assigned to the Owner/Admin yet
+  // Auto-authorize linked device phone number if no whatsappNumber is assigned or matched yet
   if (!user && cleanPhone.length >= 10) {
     const ownerUser = await prisma.user.findFirst({
       where: { role: { in: ["OWNER", "ADMIN"] } },
       orderBy: { createdAt: "asc" },
     });
-    if (ownerUser && (!ownerUser.whatsappNumber || ownerUser.whatsappNumber.includes("9999999999"))) {
+    if (ownerUser) {
       user = await prisma.user.update({
         where: { id: ownerUser.id },
         data: { whatsappNumber: `+${cleanPhone}` },

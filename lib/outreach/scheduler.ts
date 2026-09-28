@@ -29,20 +29,12 @@ export type SendingClaim = {
 };
 
 export const DEFAULT_WARMUP_SCHEDULE: WarmupEntry[] = [
-  { day: 1, cap: 50 },
-  { day: 2, cap: 75 },
-  { day: 3, cap: 100 },
-  { day: 4, cap: 150 },
-  { day: 5, cap: 225 },
-  { day: 6, cap: 325 },
-  { day: 7, cap: 450 },
-  { day: 8, cap: 600 },
-  { day: 9, cap: 750 },
-  { day: 10, cap: 900 },
-  { day: 11, cap: 1000 },
-  { day: 12, cap: 1000 },
-  { day: 13, cap: 1000 },
-  { day: 14, cap: 1000 },
+  { day: 1, cap: 15 },   // Week 1 (Days 1–7): 15 emails/day
+  { day: 8, cap: 25 },   // Week 2 (Days 8–14): 25 emails/day
+  { day: 15, cap: 35 },  // Week 3 (Days 15–21): 35 emails/day
+  { day: 22, cap: 50 },  // Week 4 (Days 22–28): 50 emails/day
+  { day: 29, cap: 75 },  // Week 5 (Days 29–35): 75 emails/day
+  { day: 36, cap: 100 }, // Week 6+ (Days 36+): 100 emails/day
 ];
 
 function configuredHardCap(): number {

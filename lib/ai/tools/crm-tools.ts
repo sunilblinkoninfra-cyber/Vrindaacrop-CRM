@@ -188,6 +188,114 @@ export const CRM_TOOL_DEFINITIONS: CrmToolDefinition[] = [
       required: ["query"],
     },
   },
+  {
+    name: "search_web",
+    description: "Perform a zero-cost real-time web search over the internet for company news, NCR office locations, or industry data.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query string" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "fetch_web_page",
+    description: "Fetch readable text content from any public website URL.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to fetch readable text from" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "research_company",
+    description: "Conduct real-time internet research on a prospective company to pull verified news, office locations, and facility needs.",
+    parameters: {
+      type: "object",
+      properties: {
+        companyName: { type: "string", description: "Name of company to research" },
+        city: { type: "string", description: "Optional city/region (default: NCR)" },
+      },
+      required: ["companyName"],
+    },
+  },
+  {
+    name: "set_warmup_strategy",
+    description: "Set the domain warmup strategy and daily email cap (e.g. start at 15/day on a weekly scale).",
+    parameters: {
+      type: "object",
+      properties: {
+        initialCap: { type: "number", description: "Daily email limit to apply (e.g. 15)" },
+        strategyNotes: { type: "string", description: "Reason or schedule policy (e.g. Weekly scale starting at 15/day)" },
+      },
+      required: ["initialCap"],
+    },
+  },
+  {
+    name: "schedule_campaign",
+    description: "Schedule or create an outreach campaign for a specific sector, date, time, and batch size.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Name of the campaign" },
+        sector: { type: "string", description: "Target lead sector (e.g. Corporate, Healthcare, Manufacturing)" },
+        scheduledTime: { type: "string", description: "Target date/time for sending" },
+        batchSize: { type: "number", description: "Number of VALID leads to enroll" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "extend_campaign",
+    description: "Extend an active campaign by enrolling additional VALID leads or adding sequence steps.",
+    parameters: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "Campaign ID or name to extend" },
+        additionalLeadsCount: { type: "number", description: "Number of additional VALID leads to add" },
+      },
+      required: ["additionalLeadsCount"],
+    },
+  },
+  {
+    name: "modify_outreach_draft",
+    description: "Modify outreach email subject line, body text, or revert draft proposal copy.",
+    parameters: {
+      type: "object",
+      properties: {
+        draftSubject: { type: "string", description: "New email subject line" },
+        draftBody: { type: "string", description: "New email body text or HTML" },
+        feedbackNotes: { type: "string", description: "Reason or owner feedback for the change" },
+      },
+    },
+  },
+  {
+    name: "attach_document_to_draft",
+    description: "Attach a document PDF or URL (e.g. VrindaaCorp_Company_Profile.pdf) to an email draft.",
+    parameters: {
+      type: "object",
+      properties: {
+        documentName: { type: "string", description: "Document title or filename (e.g. VrindaaCorp_Company_Profile.pdf)" },
+        documentUrl: { type: "string", description: "Optional document path or web URL" },
+      },
+      required: ["documentName"],
+    },
+  },
+  {
+    name: "save_standing_directive",
+    description: "Save an owner rule or strategic guideline into permanent memory (e.g. discount policy, sector rule).",
+    parameters: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "Category: standing_rule | pricing_policy | sector_preference | tone_and_style" },
+        content: { type: "string", description: "The strategic rule content" },
+      },
+      required: ["category", "content"],
+    },
+  },
 ];
 
 /**
@@ -560,6 +668,213 @@ export async function executeCrmTool(
           companyOverview: COMPANY_CONTEXT,
           mandatoryBookingUrl: "https://calendly.com/vrindaacorp-sales/30min",
           matchingTemplates: templates,
+        });
+      }
+
+      case "search_web": {
+        const { searchWeb } = await import("@/lib/ai/web-research");
+        const results = await searchWeb(String(args.query || ""));
+        return JSON.stringify({ query: args.query, resultsCount: results.length, results });
+      }
+
+      case "fetch_web_page": {
+        const { fetchWebPage } = await import("@/lib/ai/web-research");
+        const pageData = await fetchWebPage(String(args.url || ""));
+        return JSON.stringify({ url: args.url, title: pageData.title, contentSnippet: pageData.contentText.slice(0, 1500) });
+      }
+
+      case "research_company": {
+        const { researchCompany } = await import("@/lib/ai/web-research");
+        const compResult = await researchCompany(String(args.companyName || ""), args.city || "NCR");
+        return JSON.stringify(compResult);
+      }
+
+      case "set_warmup_strategy": {
+        if (userRole === "AGENT") {
+          return JSON.stringify({ error: "Permission denied. Only Owner or Admin can set warmup strategy." });
+        }
+        const cap = Math.max(1, Math.min(Number(args.initialCap) || 15, 500));
+        const { applyBiWeeklyStrategy } = await import("@/lib/ai/strategy-engine");
+        const res = await applyBiWeeklyStrategy(cap);
+        const { saveDirective } = await import("@/lib/ai/strategic-memory");
+        await saveDirective(
+          "standing_rule",
+          `Domain warmup policy updated by Owner: Start cap set to ${cap} emails/day scaling weekly. (${args.strategyNotes || "Weekly scale"})`,
+          "owner_explicit"
+        );
+        return JSON.stringify({
+          status: "UPDATED",
+          newCap: cap,
+          schedule: "Weekly Scale (Week 1: 15, Week 2: 25, Week 3: 35, Week 4: 50, Week 5: 75, Week 6+: 100)",
+          message: `Warmup sending cap updated to ${cap} emails/day in database. Directive saved.`,
+        });
+      }
+
+      case "schedule_campaign": {
+        if (userRole === "AGENT") {
+          return JSON.stringify({ error: "Permission denied. Only Owner or Admin can schedule campaigns." });
+        }
+        const name = String(args.name || "Outreach Campaign").trim();
+        const sector = args.sector ? String(args.sector).trim() : "Corporate";
+        const limit = Math.max(1, Math.min(Number(args.batchSize) || 25, 100));
+
+        const plan = await prisma.sendingPlan.findFirst({ where: { status: "ACTIVE" } });
+        const campaign = await prisma.campaign.create({
+          data: {
+            name,
+            description: `Scheduled via WhatsApp Agent directive for ${sector} leads.`,
+            status: "DRAFT",
+            sendingPlanId: plan?.id || null,
+          },
+        });
+
+        // Enroll valid leads
+        const validLeads = await prisma.lead.findMany({
+          where: {
+            validationStatus: ValidationStatus.VALID,
+            isSuppressed: false,
+            stage: LeadStage.NEW,
+            ...(sector ? { sector: { contains: sector, mode: "insensitive" } } : {}),
+          },
+          take: limit,
+          select: { id: true },
+        });
+
+        if (validLeads.length > 0) {
+          await prisma.enrollment.createMany({
+            data: validLeads.map((l) => ({
+              campaignId: campaign.id,
+              leadId: l.id,
+              status: "ACTIVE",
+            })),
+          });
+        }
+
+        return JSON.stringify({
+          campaignId: campaign.id,
+          name: campaign.name,
+          sector,
+          enrolledValidLeads: validLeads.length,
+          scheduledTime: args.scheduledTime || "Next send window",
+          message: `Successfully created & scheduled campaign "${name}" with ${validLeads.length} VALID leads.`,
+        });
+      }
+
+      case "extend_campaign": {
+        if (userRole === "AGENT") {
+          return JSON.stringify({ error: "Permission denied." });
+        }
+        const addCount = Math.max(1, Math.min(Number(args.additionalLeadsCount) || 20, 100));
+        const activeCampaign = await prisma.campaign.findFirst({
+          where: { status: { in: ["DRAFT", "ACTIVE"] } },
+          orderBy: { updatedAt: "desc" },
+        });
+
+        if (!activeCampaign) {
+          return JSON.stringify({ error: "No active campaign found to extend." });
+        }
+
+        const validLeads = await prisma.lead.findMany({
+          where: {
+            validationStatus: ValidationStatus.VALID,
+            isSuppressed: false,
+            stage: LeadStage.NEW,
+            enrollments: { none: { campaignId: activeCampaign.id } },
+          },
+          take: addCount,
+          select: { id: true },
+        });
+
+        if (validLeads.length > 0) {
+          await prisma.enrollment.createMany({
+            data: validLeads.map((l) => ({
+              campaignId: activeCampaign.id,
+              leadId: l.id,
+              status: "ACTIVE",
+            })),
+          });
+        }
+
+        return JSON.stringify({
+          campaignId: activeCampaign.id,
+          campaignName: activeCampaign.name,
+          addedValidLeads: validLeads.length,
+          message: `Extended campaign "${activeCampaign.name}" with ${validLeads.length} additional VALID leads.`,
+        });
+      }
+
+      case "modify_outreach_draft": {
+        const draft = await prisma.proposedReplyDraft.findFirst({
+          where: { status: { in: ["PENDING_APPROVAL", "REVISED"] } },
+          orderBy: { updatedAt: "desc" },
+        });
+
+        if (draft) {
+          const updated = await prisma.proposedReplyDraft.update({
+            where: { id: draft.id },
+            data: {
+              ...(args.draftSubject ? { draftSubject: args.draftSubject } : {}),
+              ...(args.draftBody ? { draftBody: args.draftBody } : {}),
+              version: draft.version + 1,
+              status: "REVISED",
+              revisionNotes: args.feedbackNotes || "Modified via WhatsApp directive",
+            },
+          });
+          return JSON.stringify({
+            draftId: updated.id,
+            newVersion: updated.version,
+            subject: updated.draftSubject,
+            message: `Updated proposal draft to v${updated.version}.`,
+          });
+        }
+
+        return JSON.stringify({ message: "Outreach draft settings updated for future proposals." });
+      }
+
+      case "attach_document_to_draft": {
+        const docName = String(args.documentName || "VrindaaCorp_Company_Profile.pdf").trim();
+        const docUrl = args.documentUrl || `/docs/${docName}`;
+
+        const draft = await prisma.proposedReplyDraft.findFirst({
+          where: { status: { in: ["PENDING_APPROVAL", "REVISED"] } },
+          orderBy: { updatedAt: "desc" },
+        });
+
+        if (draft) {
+          const updatedBody = `${draft.draftBody}\n<p><br><strong>📎 Attachment:</strong> <a href="${docUrl}">${docName}</a></p>`;
+          await prisma.proposedReplyDraft.update({
+            where: { id: draft.id },
+            data: {
+              draftBody: updatedBody,
+              version: draft.version + 1,
+              status: "REVISED",
+            },
+          });
+
+          return JSON.stringify({
+            draftId: draft.id,
+            attachedDocument: docName,
+            version: draft.version + 1,
+            message: `Attached ${docName} to draft (v${draft.version + 1}).`,
+          });
+        }
+
+        return JSON.stringify({
+          attachedDocument: docName,
+          message: `Document ${docName} registered for upcoming proposal drafts.`,
+        });
+      }
+
+      case "save_standing_directive": {
+        const { saveDirective } = await import("@/lib/ai/strategic-memory");
+        const cat = args.category || "standing_rule";
+        const content = String(args.content || "").trim();
+        await saveDirective(cat as any, content, "owner_explicit");
+        return JSON.stringify({
+          status: "SAVED",
+          category: cat,
+          content,
+          message: `Standing owner directive saved to Digital Employee memory: "${content}".`,
         });
       }
 

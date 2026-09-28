@@ -82,6 +82,12 @@ export type SendArgs = {
   leadId: string;
   /** correlation tag written into SES / headers so webhook events map back to the lead. */
   tags?: Record<string, string>;
+  attachments?: Array<{
+    filename: string;
+    path?: string;
+    content?: string | Buffer;
+    contentType?: string;
+  }>;
 };
 
 export type SendResult = { messageId: string; simulated: boolean; fromEmail: string };
@@ -106,6 +112,7 @@ export async function sendEmail(args: SendArgs): Promise<SendResult> {
       to: args.to,
       subject: args.subject,
       html: args.html,
+      attachments: args.attachments,
       headers: {
         "List-Unsubscribe": `<${unsubscribeUrl(args.leadId)}>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
