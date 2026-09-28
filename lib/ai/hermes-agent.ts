@@ -165,6 +165,8 @@ Reply with a lead name to review contact details, or reply *STATUS* for overall 
       toolsExecuted: ["get_high_intent_leads"],
       latencyMs: Date.now() - startTime,
     };
+  }
+
   // 1d. FAST-PATH: Natural Language Strategy & Warmup Cap Update (e.g. "start from 15 per day", "change strategy to 15", "weekly warmup")
   const isWarmupStrategyMsg = /(start\s*from\s*\d+|change\s*strateg|warmup|cap\s*to\s*\d+|\d+\s*per\s*day|\d+\/day)/i.test(trimmedUserMessage);
   if (isWarmupStrategyMsg && (trimmedUserMessage.toLowerCase().includes("15") || trimmedUserMessage.toLowerCase().includes("strategy") || trimmedUserMessage.toLowerCase().includes("warmup") || trimmedUserMessage.toLowerCase().includes("cap"))) {

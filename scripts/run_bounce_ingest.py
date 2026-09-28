@@ -1,0 +1,229 @@
+import paramiko
+
+ssh = paramiko.SSHClient()
+ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh.connect("200.234.47.7", username="root", password="Agarwal@#2026")
+
+ts_code = """
+import "dotenv/config";
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+import { env } from "./lib/env";
+import { prisma } from "./lib/prisma";
+import { normalizeEmail } from "./lib/utils";
+import { recordEvent, suppressLead } from "./lib/outreach/events";
+import { localDate } from "./lib/outreach/scheduler";
+import { EmailEventType, SuppressionReason, ValidationStatus } from "@prisma/client";
+
+async function processAllBouncesNow() {
+  const client = new ImapFlow({
+    host: env.imap.host,
+    port: env.imap.port,
+    secure: env.imap.secure,
+    auth: { user: env.imap.user, pass: env.imap.pass },
+    logger: false,
+  });
+
+  await client.connect();
+  const lock = await client.getMailboxLock("INBOX");
+  try {
+    const mb = client.mailbox as any;
+    const total = mb?.exists || 0;
+    console.log("Total messages in INBOX:", total);
+
+    // Fetch envelopes of all messages in mailbox up to 100
+    const start = Math.max(1, total - 100);
+    const messages = client.fetch(`${start}:*`, { envelope: true, uid: true });
+    
+    const buffer: any[] = [];
+    for await (const m of messages) {
+      buffer.push({ uid: m.uid, seq: m.seq, envelope: m.envelope });
+    }
+    console.log(`Buffered ${buffer.length} envelopes.`);
+
+    // Sort newest first
+    buffer.sort((a, b) => (b.envelope?.date?.getTime() ?? 0) - (a.envelope?.date?.getTime() ?? 0));
+
+    let bouncesProcessed = 0;
+    for (const msg of buffer) {
+      const fromAddr = msg.envelope?.from?.[0]?.address?.toLowerCase()?.trim() || "";
+      const subject = msg.envelope?.subject || "";
+      const messageId = msg.envelope?.messageId;
+      const msgDate = msg.envelope?.date ?? new Date();
+
+      const isBounce =
+        fromAddr.includes("mailer-daemon") ||
+        fromAddr.includes("postmaster") ||
+        /delivery status notification|failure|undeliver|returned mail|message blocked|rejected/i.test(subject);
+
+      if (!isBounce) continue;
+
+      let messageSource: Buffer | null = null;
+      try {
+        const dl = await client.download(msg.uid.toString(), undefined, { uid: true });
+        if (dl && dl.content) {
+          messageSource = dl.content;
+        }
+      } catch (err: any) {
+        console.warn(`Could not download UID ${msg.uid}:`, err.message);
+      }
+
+      if (!messageSource) continue;
+
+      const parsed = await simpleParser(messageSource);
+      const fullText = ((parsed.text || "") + " " + (parsed.html || "") + " " + subject).trim();
+
+      // 1. Try to extract from bounce headers
+      let failedRecipient: string | null = null;
+      const finalRecipient =
+        parsed.headers.get("final-recipient")?.toString() ||
+        parsed.headers.get("original-recipient")?.toString() ||
+        parsed.headers.get("x-failed-recipients")?.toString();
+
+      if (finalRecipient) {
+        const m = finalRecipient.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
+        if (m) failedRecipient = m[0].toLowerCase();
+      }
+
+      // 2. Explicit patterns in text
+      if (!failedRecipient) {
+        const m1 = fullText.match(
+          /(?:wasn't delivered to|was not delivered to|message to|failed to deliver to|recipient)\\s+<*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})>*/i
+        );
+        if (m1) {
+          const candidate = m1[1].toLowerCase();
+          if (!candidate.includes("vrindaacorp.com") && !candidate.includes("googlemail.com")) {
+            failedRecipient = candidate;
+          }
+        }
+      }
+
+      if (!failedRecipient) {
+        const m2 = fullText.match(
+          /<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})>:\\s*(?:user unknown|recipient address rejected|address rejected|does not exist)/i
+        );
+        if (m2) {
+          const candidate = m2[1].toLowerCase();
+          if (!candidate.includes("vrindaacorp.com")) failedRecipient = candidate;
+        }
+      }
+
+      // 3. Extract diagnostic failure reason if present
+      let bounceReason = "Delivery failed / Address not found (NDR)";
+      const reasonMatch = fullText.match(
+        /(?:The response (?:from the remote server )?was:\\s*)?(55\\d[^\\r\\n]+|The email account that you tried to reach[^\\r\\n]+|Address rejected[^\\r\\n]+|Recipient address rejected[^\\r\\n]+|User unknown[^\\r\\n]+)/i
+      );
+      if (reasonMatch) {
+        bounceReason = reasonMatch[1].trim().slice(0, 200);
+      }
+
+      let bouncedLead = null;
+      if (failedRecipient) {
+        bouncedLead = await prisma.lead.findFirst({
+          where: { emailNormalized: normalizeEmail(failedRecipient) },
+          select: { id: true, email: true, stage: true },
+        });
+      }
+
+      // 4. Fallback search
+      if (!bouncedLead) {
+        const allMatches = fullText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/g) || [];
+        const candidates = Array.from(
+          new Set(allMatches.map((m) => m.toLowerCase().replace(/^[<"']|[>"']$/g, "")))
+        ).filter(
+          (e) =>
+            !e.includes("vrindaacorp.com") &&
+            !e.includes("googlemail.com") &&
+            !e.includes("mailer-daemon") &&
+            !e.includes("postmaster")
+        );
+
+        if (candidates.length > 0) {
+          bouncedLead = await prisma.lead.findFirst({
+            where: { emailNormalized: { in: candidates.map(normalizeEmail) } },
+            select: { id: true, email: true, stage: true },
+          });
+        }
+      }
+
+      if (bouncedLead) {
+        const existingBounce = await prisma.emailEvent.findFirst({
+          where: {
+            leadId: bouncedLead.id,
+            type: EmailEventType.BOUNCED,
+            ...(messageId ? { messageId } : {}),
+          },
+        });
+
+        if (!existingBounce) {
+          const lastSent = await prisma.emailEvent.findFirst({
+            where: { leadId: bouncedLead.id, type: EmailEventType.SENT },
+            orderBy: { createdAt: "desc" },
+            select: { enrollmentId: true },
+          });
+
+          await recordEvent({
+            leadId: bouncedLead.id,
+            enrollmentId: lastSent?.enrollmentId ?? null,
+            type: EmailEventType.BOUNCED,
+            messageId: messageId ?? undefined,
+            metadata: {
+              reason: bounceReason,
+              source: "imap_ndr",
+              subject,
+              date: msgDate,
+            },
+          });
+
+          await suppressLead(
+            bouncedLead.id,
+            bouncedLead.email,
+            SuppressionReason.HARD_BOUNCE,
+            `Bounced (NDR): ${bounceReason}`
+          );
+
+          await prisma.activity
+            .create({
+              data: {
+                leadId: bouncedLead.id,
+                type: "email",
+                message: `Outreach email bounced (NDR): ${bounceReason}`,
+              },
+            })
+            .catch(() => undefined);
+
+          const today = localDate(new Date(), env.sending.timezone);
+          await prisma.sendingDay.updateMany({
+            where: { localDate: today },
+            data: { bounced: { increment: 1 } },
+          });
+
+          bouncesProcessed++;
+          console.log(`[PROCESSED BOUNCE] Lead: ${bouncedLead.email} | Reason: ${bounceReason}`);
+        } else {
+          console.log(`[ALREADY PROCESSED] Lead: ${bouncedLead.email}`);
+        }
+      } else {
+        console.log(`[NO LEAD MATCH] From: ${fromAddr} | Extracted: ${failedRecipient}`);
+      }
+    }
+
+    console.log(`\\nTotal Bounces Processed into DB: ${bouncesProcessed}`);
+  } finally {
+    lock.release();
+    await client.logout();
+  }
+}
+
+processAllBouncesNow().catch(console.error);
+"""
+
+sftp = ssh.open_sftp()
+with sftp.file("/var/www/crm/run_bounce_ingest.ts", "w") as f:
+    f.write(ts_code)
+sftp.close()
+
+stdin, stdout, stderr = ssh.exec_command("cd /var/www/crm && npx tsx run_bounce_ingest.ts && rm -f run_bounce_ingest.ts")
+print(stdout.read().decode())
+print(stderr.read().decode())
+ssh.close()
