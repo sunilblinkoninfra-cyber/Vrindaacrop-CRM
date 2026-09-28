@@ -61,14 +61,25 @@ export function buildLeadWhere(params: URLSearchParams): Prisma.LeadWhereInput {
 /** Same as buildLeadWhere but from a plain object (used by campaign segments). */
 export function segmentToWhere(segment: Record<string, string> | null | undefined): Prisma.LeadWhereInput {
   const params = new URLSearchParams();
+  const allowRecontact = String(segment?.allowRecontacting ?? "false") === "true";
+
   if (segment) {
     for (const [k, v] of Object.entries(segment)) {
-      if (v && k !== "_schedule") params.set(k, v);
+      if (v && k !== "_schedule" && k !== "allowRecontacting") params.set(k, v);
     }
   }
   // Outbound campaigns strictly target verified VALID leads.
   // Suppressed, unknown, catch-all, and risky leads are strictly excluded.
   params.set("suppressed", "0");
   params.set("validation", "VALID");
-  return buildLeadWhere(params);
+
+  const where = buildLeadWhere(params);
+
+  // By default, campaigns strictly target uncontacted leads (stage: NEW) unless explicitly configured.
+  if (!allowRecontact && !segment?.stage) {
+    where.stage = LeadStage.NEW;
+  }
+
+  return where;
 }
+

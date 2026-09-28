@@ -580,7 +580,39 @@ export function CampaignBuilder({
 
       {/* Target Segment Card */}
       <Card className="space-y-3">
-        <h2 className="text-sm font-semibold text-slate-700">Target segment</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-700">Target segment & enrollment policy</h2>
+          <span className="text-xs text-slate-400">Default: Only uncontacted leads are enrolled</span>
+        </div>
+        
+        {/* Enrollment Policy Selector */}
+        <div className="rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-slate-50 p-3.5 space-y-2">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-800">
+            <span className="flex items-center gap-1.5">
+              <span className="text-base">🛡️</span>
+              <span>Lead Re-Contacting Policy</span>
+            </span>
+            <span className="text-[11px] font-medium text-indigo-700">
+              {String(seg.allowRecontacting) === "true"
+                ? "🟡 Re-contacting enabled for previous leads"
+                : "🟢 Default: Enrolls ONLY never-contacted leads (stage: NEW)"}
+            </span>
+          </div>
+          <Select
+            value={String(seg.allowRecontacting) === "true" ? "true" : "false"}
+            onChange={(e) => setSeg({ ...seg, allowRecontacting: e.target.value })}
+            className="bg-white text-xs font-semibold text-slate-900 shadow-xs border-indigo-200"
+          >
+            <option value="false">🟢 Uncontacted Leads Only (Default — Enrolls ONLY leads never emailed before)</option>
+            <option value="true">🟡 Include Previously Contacted Leads (Allows re-engaging leads from prior campaigns)</option>
+          </Select>
+          <p className="text-[11px] text-slate-500">
+            {String(seg.allowRecontacting) === "true"
+              ? "Leads contacted in previous campaigns will be included if they match this segment (duplicate enrollments in this campaign are still prevented)."
+              : "Protects your leads from repeated outreach: leads already contacted or enrolled in previous campaigns will be strictly excluded."}
+          </p>
+        </div>
+
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4">
           <Select value={seg.sector ?? ""} onChange={(e) => setSeg({ ...seg, sector: e.target.value })}>
             <option value="">Any sector</option>
@@ -619,12 +651,14 @@ export function CampaignBuilder({
             Preview count
           </Button>
           {count !== null && (
-            <span className="text-sm text-slate-600">{count} valid leads match (excludes non-valid & suppressed)</span>
+            <span className="text-sm font-medium text-slate-700">
+              {count} valid lead{count === 1 ? "" : "s"} match ({String(seg.allowRecontacting) === "true" ? "includes previous contacts" : "uncontacted leads only"})
+            </span>
           )}
           <Button
             className="w-full sm:w-auto"
             disabled={pending}
-            onClick={() => run(() => updateSegment(campaignId, { ...seg, validation: "VALID" }), "Target segment saved.")}
+            onClick={() => run(() => updateSegment(campaignId, { ...seg, validation: "VALID" }), "Target segment & policy saved.")}
           >
             Save segment
           </Button>

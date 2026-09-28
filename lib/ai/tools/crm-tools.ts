@@ -724,39 +724,21 @@ export async function executeCrmTool(
             name,
             description: `Scheduled via WhatsApp Agent directive for ${sector} leads.`,
             status: "DRAFT",
+            segment: { sector, validation: "VALID", allowRecontacting: false },
             sendingPlanId: plan?.id || null,
           },
         });
 
-        // Enroll valid leads
-        const validLeads = await prisma.lead.findMany({
-          where: {
-            validationStatus: ValidationStatus.VALID,
-            isSuppressed: false,
-            stage: LeadStage.NEW,
-            ...(sector ? { sector: { contains: sector, mode: "insensitive" } } : {}),
-          },
-          take: limit,
-          select: { id: true },
-        });
-
-        if (validLeads.length > 0) {
-          await prisma.enrollment.createMany({
-            data: validLeads.map((l) => ({
-              campaignId: campaign.id,
-              leadId: l.id,
-              status: "ACTIVE",
-            })),
-          });
-        }
+        const { enrollCampaignLeads } = await import("@/lib/outreach/enroll");
+        const enrolledCount = await enrollCampaignLeads(campaign.id);
 
         return JSON.stringify({
           campaignId: campaign.id,
           name: campaign.name,
           sector,
-          enrolledValidLeads: validLeads.length,
+          enrolledValidLeads: enrolledCount,
           scheduledTime: args.scheduledTime || "Next send window",
-          message: `Successfully created & scheduled campaign "${name}" with ${validLeads.length} VALID leads.`,
+          message: `Successfully created & scheduled campaign "${name}" with ${enrolledCount} uncontacted VALID leads.`,
         });
       }
 
