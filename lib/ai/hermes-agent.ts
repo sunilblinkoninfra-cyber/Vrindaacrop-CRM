@@ -362,12 +362,12 @@ State explicitly what you understood from the message in context of the CRM stat
     { role: "user", content: trimmedUserMessage },
   ];
 
-  try {
+  async function callOllama(targetModel: string) {
     let res = await fetch(`${base}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model,
+        model: targetModel,
         messages,
         tools,
         tool_choice: "auto",
@@ -381,12 +381,38 @@ State explicitly what you understood from the message in context of the CRM stat
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model,
+          model: targetModel,
           messages,
           tools,
           stream: false,
         }),
       });
+    }
+
+    return res;
+  }
+
+  try {
+    let res = await callOllama(model);
+
+    // Dynamic model fallback if primary model returns 404
+    if (!res.ok && res.status === 404) {
+      console.warn(`[Hermes Agent] Model '${model}' returned 404. Attempting dynamic fallback to installed Ollama tags...`);
+      try {
+        const tagsRes = await fetch(`${base}/api/tags`);
+        if (tagsRes.ok) {
+          const tagsData = await tagsRes.json();
+          const availableModels: string[] = (tagsData.models || []).map((m: any) => m.name);
+          const fallbackModel = availableModels.find((m) => m.includes("hermes") || m.includes("llama")) || availableModels[0];
+
+          if (fallbackModel && fallbackModel !== model) {
+            console.log(`[Hermes Agent] Falling back to model '${fallbackModel}'`);
+            res = await callOllama(fallbackModel);
+          }
+        }
+      } catch (fallbackErr) {
+        console.error("[Hermes Agent Fallback Error]:", fallbackErr);
+      }
     }
 
     if (!res.ok) {
