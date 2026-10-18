@@ -61,6 +61,12 @@ export async function sendWhatsAppTextMessage(to: string, message: string): Prom
     return { ok: false, simulated: false, error: "Missing or invalid recipient phone number." };
   }
 
+  // CORE SECURITY DIRECTIVE: Sole authorized WhatsApp recipient is +917351138751
+  if (!cleanPhone.endsWith("7351138751")) {
+    console.warn(`[SECURITY DIRECTIVE] Outbound WhatsApp to +${cleanPhone} blocked. Only +917351138751 is authorized.`);
+    return { ok: false, simulated: false, error: "Blocked by Core Security Directive: Sole authorized recipient is +917351138751." };
+  }
+
   // 1. Try Evolution API (Self-Hosted on VPS) if configured
   if (env.whatsapp.gateway === "evolution" && env.whatsapp.evolutionApiUrl) {
     try {

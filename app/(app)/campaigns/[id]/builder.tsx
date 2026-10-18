@@ -1008,6 +1008,7 @@ export function CampaignBuilder({
         enrolledCount={enrolledCount}
         outboundSender={outboundSender}
         initialMode={modalMode}
+        existingSchedule={scheduleDetails?.scheduleMeta}
         steps={steps}
         sampleLead={sampleLead}
         onSuccess={(msg) => setSuccess(msg)}

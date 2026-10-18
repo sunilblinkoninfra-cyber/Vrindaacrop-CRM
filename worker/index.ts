@@ -2,6 +2,7 @@ import "dotenv/config";
 import { prisma } from "@/lib/prisma";
 import { env, isImapConfigured } from "@/lib/env";
 import { runSender } from "@/lib/outreach/sender";
+import { isWeekend } from "@/lib/outreach/scheduler";
 import { runEscalation } from "@/lib/outreach/escalation";
 import { runCompanyAlerts } from "@/lib/outreach/company-alerts";
 import { runContractReminders } from "@/lib/outreach/contract-reminders";
@@ -17,9 +18,22 @@ const MAINTENANCE_INTERVAL_MS = 15 * 60_000;
 let senderRunning = false;
 let repliesRunning = false;
 let maintenanceRunning = false;
+let lastWeekendLog = 0;
 
 async function tickSender() {
   if (senderRunning) return;
+
+  // HARDCODED DELIVERABILITY GUARD: Absolutely NO outreach emails on Saturday or Sunday under any circumstances
+  const now = new Date();
+  if (isWeekend(now, env.sending.timezone)) {
+    // Log once an hour so logs don't flood, but provide clear status
+    if (Date.now() - lastWeekendLog > 60 * 60 * 1000) {
+      console.log(`[sender] Weekend detected (${now.toLocaleString("en-IN", { timeZone: env.sending.timezone })}). Outreach engine is strictly paused for weekend.`);
+      lastWeekendLog = Date.now();
+    }
+    return;
+  }
+
   senderRunning = true;
   const started = new Date();
   try {

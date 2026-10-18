@@ -10,6 +10,17 @@ import {
   type OutreachSendingStatus,
 } from "@/app/(app)/campaigns/actions";
 
+export type ScheduleMeta = {
+  type?: string;
+  scheduledDates?: string[];
+  firstSendAt?: string;
+  lastSendAt?: string;
+  leadsPerDay?: number;
+  delaySeconds?: number;
+  totalScheduled?: number;
+  scheduledAt?: string;
+};
+
 interface TriggerOutreachModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -17,6 +28,7 @@ interface TriggerOutreachModalProps {
   campaignName: string;
   enrolledCount?: number;
   initialMode?: "immediate" | "scheduled";
+  existingSchedule?: ScheduleMeta | null;
   outboundSender?: {
     fromEmail: string;
     provider: string;
@@ -84,6 +96,11 @@ function parseDateKey(key: string): { year: number; month: number; day: number }
   return { year: y, month: m - 1, day: d };
 }
 
+function isWeekendDay(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6; // Sunday = 0, Saturday = 6
+}
+
 function getTodayKey(): string {
   const now = new Date();
   return formatDateKey(now.getFullYear(), now.getMonth(), now.getDate());
@@ -95,12 +112,25 @@ function getTomorrowKey(): string {
   return formatDateKey(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
+function getInitialWeekdayKeys(): string[] {
+  const keys: string[] = [];
+  const d = new Date();
+  while (keys.length < 2) {
+    if (!isWeekendDay(d)) {
+      keys.push(formatDateKey(d.getFullYear(), d.getMonth(), d.getDate()));
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return keys;
+}
+
 type CalendarDayCell = {
   key: string;
   dayNumber: number;
   isCurrentMonth: boolean;
   isToday: boolean;
   isPast: boolean;
+  isWeekend: boolean;
   dateObj: Date;
 };
 
@@ -126,6 +156,7 @@ function generateMonthGrid(viewDate: Date): CalendarDayCell[] {
       isCurrentMonth: false,
       isToday: key === todayKey,
       isPast: key < todayKey,
+      isWeekend: isWeekendDay(prevDate),
       dateObj: prevDate,
     });
   }
@@ -140,6 +171,7 @@ function generateMonthGrid(viewDate: Date): CalendarDayCell[] {
       isCurrentMonth: true,
       isToday: key === todayKey,
       isPast: key < todayKey,
+      isWeekend: isWeekendDay(dateObj),
       dateObj,
     });
   }
@@ -157,6 +189,7 @@ function generateMonthGrid(viewDate: Date): CalendarDayCell[] {
         isCurrentMonth: false,
         isToday: key === todayKey,
         isPast: key < todayKey,
+        isWeekend: isWeekendDay(nextDate),
         dateObj: nextDate,
       });
     }
@@ -172,6 +205,7 @@ export function TriggerOutreachModal({
   campaignName,
   enrolledCount = 0,
   initialMode = "scheduled",
+  existingSchedule,
   outboundSender,
   steps = [],
   sampleLead,
@@ -191,21 +225,18 @@ export function TriggerOutreachModal({
   // Calendar View Month
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
 
-  // Selected Dates (keys: YYYY-MM-DD) — default to Today & Tomorrow
-  const [selectedDateKeys, setSelectedDateKeys] = useState<string[]>(() => [
-    getTodayKey(),
-    getTomorrowKey(),
-  ]);
+  // Selected Dates (keys: YYYY-MM-DD) — default to upcoming business days (Mon-Fri)
+  const [selectedDateKeys, setSelectedDateKeys] = useState<string[]>(() => getInitialWeekdayKeys());
 
   // Outbound Dispatch Time of Day (e.g. "09:30")
   const [dispatchTime, setDispatchTime] = useState<string>("09:30");
 
-  // Email Batch Limit
+  // Email Batch Frequency (Emails Per Day in Scheduled mode)
   const [limit, setLimit] = useState<number>(50);
   const [customLimitInput, setCustomLimitInput] = useState<string>("50");
 
   // Immediate mode spacing (seconds)
-  const [immediateDelay, setImmediateDelay] = useState<number>(0);
+  const [immediateDelay, setImmediateDelay] = useState<number>(15);
 
   // Outreach Sending Status (Plan & Day Health)
   const [sendingStatus, setSendingStatus] = useState<OutreachSendingStatus | null>(null);
@@ -218,6 +249,84 @@ export function TriggerOutreachModal({
         .catch(() => null);
     }
   }, [isOpen]);
+
+  // Hydrate previously selected schedule if editing ongoing campaign
+  useEffect(() => {
+    if (!isOpen) return;
+    if (existingSchedule) {
+      // 1. Scheduled Dates
+      if (Array.isArray(existingSchedule.scheduledDates) && existingSchedule.scheduledDates.length > 0) {
+        const keys = existingSchedule.scheduledDates
+          .map((iso) => {
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return null;
+            const parts = new Intl.DateTimeFormat("en-US", {
+              timeZone: "Asia/Kolkata",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+            }).formatToParts(d);
+            const y = parts.find((p) => p.type === "year")?.value;
+            const m = parts.find((p) => p.type === "month")?.value;
+            const day = parts.find((p) => p.type === "day")?.value;
+            return `${y}-${m}-${day}`;
+          })
+          .filter(Boolean) as string[];
+
+        // Filter out weekends from past schedule
+        const weekdayKeys = keys.filter((key) => {
+          const { year, month, day } = parseDateKey(key);
+          const dt = new Date(year, month, day);
+          return dt.getDay() !== 0 && dt.getDay() !== 6;
+        });
+
+        if (weekdayKeys.length > 0) {
+          setSelectedDateKeys(weekdayKeys);
+          const firstParsed = parseDateKey(weekdayKeys[0]);
+          setCalendarMonth(new Date(firstParsed.year, firstParsed.month, 1));
+        }
+      }
+
+      // 2. Dispatch Time
+      if (existingSchedule.firstSendAt) {
+        const d = new Date(existingSchedule.firstSendAt);
+        if (!isNaN(d.getTime())) {
+          const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: "Asia/Kolkata",
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+          }).formatToParts(d);
+          const h = parts.find((p) => p.type === "hour")?.value ?? "09";
+          const m = parts.find((p) => p.type === "minute")?.value ?? "30";
+          setDispatchTime(`${h.padStart(2, "0")}:${m.padStart(2, "0")}`);
+        }
+      }
+
+      // 3. Frequency (leadsPerDay)
+      if (typeof existingSchedule.leadsPerDay === "number" && existingSchedule.leadsPerDay > 0) {
+        setLimit(existingSchedule.leadsPerDay);
+        setCustomLimitInput(String(existingSchedule.leadsPerDay));
+      } else if (typeof existingSchedule.totalScheduled === "number" && existingSchedule.totalScheduled > 0) {
+        const days = existingSchedule.scheduledDates?.length || 1;
+        const perDay = Math.max(1, Math.ceil(existingSchedule.totalScheduled / days));
+        setLimit(perDay);
+        setCustomLimitInput(String(perDay));
+      }
+
+      // 4. Delay Seconds (spacing)
+      if (typeof existingSchedule.delaySeconds === "number" && existingSchedule.delaySeconds >= 0) {
+        setImmediateDelay(existingSchedule.delaySeconds);
+      }
+
+      // 5. Mode
+      if (existingSchedule.type === "immediate") {
+        setMode("immediate");
+      } else if (existingSchedule.type === "calendar") {
+        setMode("scheduled");
+      }
+    }
+  }, [isOpen, existingSchedule]);
 
   const [isPending, startTransition] = useTransition();
 
@@ -239,9 +348,9 @@ export function TriggerOutreachModal({
     setCalendarMonth(new Date());
   }
 
-  // Toggle single date
-  function handleToggleDate(key: string, isPast: boolean) {
-    if (isPast) return;
+  // Toggle single date (strictly ignoring past and weekends)
+  function handleToggleDate(key: string, isPast: boolean, isWeekend: boolean) {
+    if (isPast || isWeekend) return;
     setSelectedDateKeys((prev) => {
       if (prev.includes(key)) {
         if (prev.length === 1) return prev; // keep at least 1 date
@@ -252,51 +361,69 @@ export function TriggerOutreachModal({
     });
   }
 
-  // Quick Calendar Shortcuts
+  // Quick Calendar Shortcuts (Strictly exclude Saturday & Sunday)
   function selectToday() {
+    const today = new Date();
+    if (isWeekendDay(today)) {
+      selectNext5Weekdays();
+      return;
+    }
     const todayKey = getTodayKey();
     setCalendarMonth(new Date());
     setSelectedDateKeys([todayKey]);
   }
 
   function selectTodayAndTomorrow() {
-    const todayKey = getTodayKey();
-    const tomKey = getTomorrowKey();
+    const today = new Date();
+    const tom = new Date();
+    tom.setDate(tom.getDate() + 1);
+    const keys: string[] = [];
+    if (!isWeekendDay(today)) keys.push(formatDateKey(today.getFullYear(), today.getMonth(), today.getDate()));
+    if (!isWeekendDay(tom)) keys.push(formatDateKey(tom.getFullYear(), tom.getMonth(), tom.getDate()));
+    if (keys.length === 0) {
+      selectNext5Weekdays();
+      return;
+    }
     setCalendarMonth(new Date());
-    setSelectedDateKeys([todayKey, tomKey]);
+    setSelectedDateKeys(keys);
   }
 
   function selectTomorrow() {
-    const tomKey = getTomorrowKey();
-    const tomDate = new Date();
-    tomDate.setDate(tomDate.getDate() + 1);
-    setCalendarMonth(new Date(tomDate.getFullYear(), tomDate.getMonth(), 1));
-    setSelectedDateKeys([tomKey]);
+    const tom = new Date();
+    tom.setDate(tom.getDate() + 1);
+    while (isWeekendDay(tom)) {
+      tom.setDate(tom.getDate() + 1);
+    }
+    setCalendarMonth(new Date(tom.getFullYear(), tom.getMonth(), 1));
+    setSelectedDateKeys([formatDateKey(tom.getFullYear(), tom.getMonth(), tom.getDate())]);
   }
 
-  function selectNext7Days() {
+  function selectNext5Weekdays() {
     const keys: string[] = [];
     const base = new Date();
-    for (let i = 1; i <= 7; i++) {
+    let checked = 1;
+    while (keys.length < 5 && checked <= 14) {
       const d = new Date();
-      d.setDate(base.getDate() + i);
-      keys.push(formatDateKey(d.getFullYear(), d.getMonth(), d.getDate()));
+      d.setDate(base.getDate() + checked);
+      if (!isWeekendDay(d)) {
+        keys.push(formatDateKey(d.getFullYear(), d.getMonth(), d.getDate()));
+      }
+      checked++;
     }
     setSelectedDateKeys(keys);
   }
 
-  function selectNext2WeeksWeekdays() {
+  function selectNext10Weekdays() {
     const keys: string[] = [];
     const base = new Date();
-    let checkedDays = 1;
-    while (keys.length < 10 && checkedDays <= 20) {
+    let checked = 1;
+    while (keys.length < 10 && checked <= 20) {
       const d = new Date();
-      d.setDate(base.getDate() + checkedDays);
-      const dayOfWeek = d.getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      d.setDate(base.getDate() + checked);
+      if (!isWeekendDay(d)) {
         keys.push(formatDateKey(d.getFullYear(), d.getMonth(), d.getDate()));
       }
-      checkedDays++;
+      checked++;
     }
     setSelectedDateKeys(keys);
   }
@@ -310,20 +437,19 @@ export function TriggerOutreachModal({
 
     for (let day = today.getDate() + 1; day <= totalDays; day++) {
       const d = new Date(year, month, day);
-      const dayOfWeek = d.getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      if (!isWeekendDay(d)) {
         keys.push(formatDateKey(year, month, day));
       }
     }
     if (keys.length === 0) {
-      selectNext7Days();
+      selectNext5Weekdays();
     } else {
       setSelectedDateKeys(keys);
     }
   }
 
   function handleClearDates() {
-    setSelectedDateKeys([getTomorrowKey()]);
+    setSelectedDateKeys(getInitialWeekdayKeys());
   }
 
   function handlePresetLimitClick(value: number) {
@@ -339,7 +465,7 @@ export function TriggerOutreachModal({
     }
   }
 
-  // Live Calendar Schedule Projection
+  // Live Calendar Schedule Projection (Per-Day frequency × selected days)
   const calendarProjection = useMemo(() => {
     if (selectedDateKeys.length === 0) return null;
     const sortedKeys = [...selectedDateKeys].sort();
@@ -354,8 +480,8 @@ export function TriggerOutreachModal({
     const lastDate = new Date(lastParsed.year, lastParsed.month, lastParsed.day, hh || 9, mm || 30);
 
     const daysCount = sortedKeys.length;
-    const totalLeads = Math.max(1, limit);
-    const leadsPerDay = Math.ceil(totalLeads / daysCount);
+    const leadsPerDay = Math.max(1, limit);
+    const totalScheduledEmails = leadsPerDay * daysCount;
     const estimatedMinutesPerDay = Math.ceil((leadsPerDay * immediateDelay) / 60);
 
     const spanDays = Math.max(
@@ -366,6 +492,7 @@ export function TriggerOutreachModal({
     return {
       daysCount,
       leadsPerDay,
+      totalScheduledEmails,
       firstDate,
       lastDate,
       spanDays,
@@ -404,7 +531,7 @@ export function TriggerOutreachModal({
           const res = await scheduleCampaignOutreach({
             campaignId,
             selectedDatesISO,
-            limit: finalLimit,
+            leadsPerDay: finalLimit,
             delaySeconds: immediateDelay,
             activateIfDraft: true,
           });
@@ -412,7 +539,7 @@ export function TriggerOutreachModal({
           onClose();
           onSuccess?.(
             res.message ||
-              `📅 Outreach scheduled across ${selectedDateKeys.length} selected calendar date(s) starting ${new Date(res.scheduledAt).toLocaleString()}!`
+              `📅 Outreach scheduled at ${finalLimit} emails/day across ${selectedDateKeys.length} weekday(s) starting ${new Date(res.scheduledAt).toLocaleString()}!`
           );
         } else {
           // Immediate mode
@@ -580,16 +707,50 @@ export function TriggerOutreachModal({
             </div>
           )}
 
-          {/* Strict Deliverability Guard Banner */}
+          {/* Existing Schedule Loaded Banner */}
+          {existingSchedule && (
+            <div className="rounded-xl border border-sky-300 bg-sky-50 px-3.5 py-2 text-[11px] text-sky-950 flex items-center justify-between shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="text-base leading-none">📋</span>
+                <div>
+                  <span className="font-bold">Existing Schedule Loaded:</span> Showing previously saved dates (
+                  {selectedDateKeys.length} day{selectedDateKeys.length > 1 ? "s" : ""}) and frequency (
+                  {limit} email{limit > 1 ? "s" : ""}/day). You can adjust any parameter below.
+                </div>
+              </div>
+              <span className="text-[10px] font-semibold bg-sky-200/70 text-sky-900 rounded px-1.5 py-0.5 shrink-0">
+                Active Schedule
+              </span>
+            </div>
+          )}
+
+          {/* Strict Deliverability Guard & Re-engagement Protection Banner */}
           <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/60 px-3.5 py-2 text-[11px] text-indigo-900 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-sm leading-none">🛡️</span>
-              <span>
-                <strong>Strict Deliverability Guard:</strong> Only verified <strong className="text-emerald-700 font-bold">VALID</strong> mailboxes are scheduled. Non-valid are excluded.
-              </span>
+              <div>
+                <strong>Strict Deliverability Guard:</strong> Only verified <strong className="text-emerald-700 font-bold">VALID</strong> mailboxes are approached. Previously contacted leads are protected from repeat outreach unless Re-engagement is explicitly enabled.
+              </div>
             </div>
-            <span className="text-[10px] text-indigo-700 font-medium">Zero-Tolerance Active</span>
+            <span className="text-[10px] text-indigo-700 font-medium shrink-0 ml-2">Enforced</span>
           </div>
+
+          {/* Weekend Warning Banner for Immediate Dispatch */}
+          {mode === "immediate" && isWeekendDay(new Date()) && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3.5 text-xs text-amber-900 shadow-2xs">
+              <div className="flex items-start gap-2.5">
+                <span className="text-lg leading-none">⚠️</span>
+                <div>
+                  <span className="font-bold">Weekend Outreach Restriction Active (Sat/Sun):</span>
+                  <p className="mt-0.5 text-[11px] text-amber-800 leading-relaxed">
+                    Under VrindaaCorp deliverability policy, cold outreach emails are never dispatched on weekends under any condition.
+                    Submitting now will safely queue these {limit} leads to begin automated dispatch on <strong>Monday morning at 09:30 AM IST</strong>.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {mode === "scheduled" && (
             <div className="space-y-4">
               {/* Interactive Month Calendar Card */}
@@ -634,41 +795,45 @@ export function TriggerOutreachModal({
 
                 {/* Quick Date Range Selectors */}
                 <div className="flex flex-wrap items-center gap-1.5 pt-3 pb-2 text-[11px]">
-                  <span className="font-semibold text-slate-400 mr-0.5">Quick:</span>
-                  <button
-                    type="button"
-                    onClick={selectToday}
-                    className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    onClick={selectTodayAndTomorrow}
-                    className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
-                  >
-                    Today & Tomorrow
-                  </button>
+                  <span className="font-semibold text-slate-400 mr-0.5">Quick Weekdays:</span>
+                  {!isWeekendDay(new Date()) && (
+                    <button
+                      type="button"
+                      onClick={selectToday}
+                      className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
+                    >
+                      Today
+                    </button>
+                  )}
+                  {!isWeekendDay(new Date()) && (
+                    <button
+                      type="button"
+                      onClick={selectTodayAndTomorrow}
+                      className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
+                    >
+                      Today & Tomorrow
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={selectTomorrow}
                     className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 font-medium text-slate-700 hover:border-brand hover:text-brand transition-colors"
                   >
-                    Tomorrow
+                    Next Weekday
                   </button>
                   <button
                     type="button"
-                    onClick={selectNext7Days}
+                    onClick={selectNext5Weekdays}
                     className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 font-medium text-slate-700 hover:border-brand hover:text-brand transition-colors"
                   >
-                    Next 7 Days
+                    Next 5 Weekdays
                   </button>
                   <button
                     type="button"
-                    onClick={selectNext2WeeksWeekdays}
+                    onClick={selectNext10Weekdays}
                     className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 font-medium text-slate-700 hover:border-brand hover:text-brand transition-colors"
                   >
-                    Next 2 Wks (Weekdays)
+                    Next 10 Weekdays
                   </button>
                   <button
                     type="button"
@@ -687,41 +852,71 @@ export function TriggerOutreachModal({
                 </div>
 
                 {/* Days of week header */}
-                <div className="grid grid-cols-7 gap-1 pt-1 text-center text-[11px] font-bold text-slate-400">
-                  {DAY_LABELS.map((day) => (
-                    <div key={day} className="py-1">
-                      {day}
-                    </div>
-                  ))}
+                <div className="grid grid-cols-7 gap-1 pt-1 text-center text-[11px] font-bold">
+                  {DAY_LABELS.map((day) => {
+                    const isWeekendCol = day === "Su" || day === "Sa";
+                    return (
+                      <div
+                        key={day}
+                        className={`py-1 flex flex-col items-center justify-center rounded ${
+                          isWeekendCol
+                            ? "bg-amber-50/50 text-amber-700 font-bold"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        <span>{day}</span>
+                        {isWeekendCol && (
+                          <span className="text-[9px] font-semibold text-amber-500 uppercase tracking-tighter">
+                            Off
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Day Cells Grid */}
                 <div className="grid grid-cols-7 gap-1 pt-1">
                   {monthCells.map((cell) => {
                     const isSelected = selectedDateKeys.includes(cell.key);
+                    const isDisabled = cell.isPast || cell.isWeekend;
 
                     return (
                       <button
                         key={cell.key}
                         type="button"
-                        onClick={() => handleToggleDate(cell.key, cell.isPast)}
-                        disabled={cell.isPast}
+                        onClick={() => handleToggleDate(cell.key, cell.isPast, cell.isWeekend)}
+                        disabled={isDisabled}
+                        title={
+                          cell.isWeekend
+                            ? "Weekends disabled: Outreach policy blocks Saturday & Sunday dispatch."
+                            : cell.isPast
+                            ? "Past date"
+                            : `Select ${cell.key}`
+                        }
                         className={`group relative flex h-8 w-full sm:h-9 items-center justify-center rounded-lg text-xs font-semibold transition-all ${
-                          cell.isPast
-                            ? "cursor-not-allowed text-slate-300 opacity-40"
+                          cell.isWeekend
+                            ? "cursor-not-allowed bg-amber-50/40 text-amber-300 line-through opacity-45 select-none"
+                            : cell.isPast
+                            ? "cursor-not-allowed text-slate-300 opacity-40 select-none"
                             : isSelected
                             ? "bg-emerald-600 text-white shadow-xs font-bold ring-2 ring-emerald-500/30 hover:bg-emerald-700"
                             : cell.isCurrentMonth
                             ? "text-slate-800 hover:bg-emerald-50 hover:text-emerald-700"
                             : "text-slate-400 hover:bg-slate-100"
                         } ${
-                          cell.isToday && !isSelected
+                          cell.isToday && !isSelected && !cell.isWeekend
                             ? "ring-1 ring-emerald-600 font-extrabold text-emerald-700 bg-emerald-50/50"
                             : ""
                         }`}
                       >
                         <span>{cell.dayNumber}</span>
-                        {isSelected && (
+                        {cell.isWeekend && (
+                          <span className="absolute bottom-0.5 text-[8px] font-bold text-amber-400 leading-none">
+                            ✕
+                          </span>
+                        )}
+                        {isSelected && !cell.isWeekend && (
                           <span className="absolute bottom-0.5 h-1 w-1 rounded-full bg-white opacity-80" />
                         )}
                       </button>
@@ -734,11 +929,11 @@ export function TriggerOutreachModal({
                   <div className="flex items-center gap-1.5 text-slate-700">
                     <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
                     <span className="font-semibold text-emerald-800">
-                      {selectedDateKeys.length} dispatch date{selectedDateKeys.length > 1 ? "s" : ""} selected
+                      {selectedDateKeys.length} dispatch weekday{selectedDateKeys.length > 1 ? "s" : ""} selected
                     </span>
                   </div>
                   <span className="text-[11px] text-slate-500">
-                    Click any day to toggle on/off
+                    Click any weekday to toggle on/off (weekends excluded)
                   </span>
                 </div>
               </div>
@@ -787,17 +982,24 @@ export function TriggerOutreachModal({
             </div>
           )}
 
-          {/* Section: Number of Outgoing Emails (Batch Limit) */}
+          {/* Section: Number of Outgoing Emails (Batch Limit / Frequency) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Number of Outgoing Emails
+                {mode === "scheduled"
+                  ? "Outreach Emails Per Day (Frequency)"
+                  : "Number of Outgoing Emails"}
               </label>
-              {enrolledCount > 0 && (
+              {mode === "scheduled" && selectedDateKeys.length > 0 ? (
+                <span className="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                  Total: {selectedDateKeys.length} days × {limit}/day ={" "}
+                  <strong>{limit * selectedDateKeys.length} emails</strong>
+                </span>
+              ) : enrolledCount > 0 ? (
                 <span className="text-xs text-slate-500">
                   {enrolledCount} total active enrolled leads
                 </span>
-              )}
+              ) : null}
             </div>
 
             {/* Quick Limit Presets */}
@@ -814,10 +1016,11 @@ export function TriggerOutreachModal({
                   }`}
                 >
                   {preset}
+                  {mode === "scheduled" ? "/day" : ""}
                 </button>
               ))}
 
-              {enrolledCount > 0 && (
+              {enrolledCount > 0 && mode === "immediate" && (
                 <button
                   type="button"
                   onClick={() => handlePresetLimitClick(enrolledCount)}
@@ -841,14 +1044,24 @@ export function TriggerOutreachModal({
                 max={1000}
                 value={customLimitInput}
                 onChange={(e) => handleCustomLimitChange(e.target.value)}
-                placeholder="Custom email batch size"
+                placeholder={
+                  mode === "scheduled"
+                    ? "Emails per day (e.g. 25)"
+                    : "Custom email batch size"
+                }
                 className="font-mono text-sm font-semibold"
                 required
               />
               <span className="pointer-events-none absolute right-3 top-2.5 text-xs text-slate-400">
-                emails
+                {mode === "scheduled" ? "emails / day" : "emails"}
               </span>
             </div>
+
+            {mode === "scheduled" && (
+              <p className="text-[11px] text-slate-500">
+                Each selected weekday will dispatch up to <strong>{limit} emails</strong> at {dispatchTime} IST.
+              </p>
+            )}
           </div>
 
           {/* Intra-Batch Spacing Delay (Applicable to both Immediate & Calendar Schedule) */}
@@ -896,7 +1109,7 @@ export function TriggerOutreachModal({
                   <span>Calendar Delivery Projection</span>
                 </span>
                 <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800">
-                  {limit} total recipient{limit > 1 ? "s" : ""}
+                  {calendarProjection.totalScheduledEmails} total recipient{calendarProjection.totalScheduledEmails > 1 ? "s" : ""} ({calendarProjection.leadsPerDay}/day)
                 </span>
               </div>
 
@@ -1174,14 +1387,16 @@ export function TriggerOutreachModal({
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                     <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
                   </svg>
-                  Send {limit} Emails Now
+                  {isWeekendDay(new Date())
+                    ? `Queue ${limit} Leads for Monday Morning (09:30 AM)`
+                    : `Send ${limit} Emails Now`}
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                     <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd" />
                   </svg>
-                  Schedule {limit} Emails across {selectedDateKeys.length} Date{selectedDateKeys.length > 1 ? "s" : ""}
+                  Schedule {limit}/day across {selectedDateKeys.length} Weekday{selectedDateKeys.length > 1 ? "s" : ""} ({limit * selectedDateKeys.length} Total)
                 </span>
               )}
             </Button>

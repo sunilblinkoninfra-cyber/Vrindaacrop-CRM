@@ -14,7 +14,12 @@ async function requireUser() {
 
 export async function createCampaign(name: string) {
   await requireUser();
-  const c = await prisma.campaign.create({ data: { name: name.trim() || "Untitled campaign" } });
+  const c = await prisma.campaign.create({
+    data: {
+      name: name.trim() || "Untitled campaign",
+      segment: { validation: "VALID", allowRecontacting: "false" },
+    },
+  });
   revalidatePath("/campaigns");
   return c.id;
 }
@@ -142,6 +147,7 @@ export type ScheduleOutreachOptions = {
   selectedDatesISO?: string[];
   startDateISO?: string;
   limit?: number;
+  leadsPerDay?: number;
   delaySeconds?: number;
   activateIfDraft?: boolean;
 };
@@ -162,6 +168,7 @@ export async function scheduleCampaignOutreach(
     selectedDatesISO,
     startDateISO,
     limit,
+    leadsPerDay: requestedLeadsPerDay,
     delaySeconds = 0,
     activateIfDraft = true,
   } = options;
@@ -180,7 +187,7 @@ export async function scheduleCampaignOutreach(
   }
 
   // Ensure the sending plan and today's sending day are UNPAUSED so outreach will actually send!
-  const { ensureDefaultSendingPlan, ensureSendingDay } = await import("@/lib/outreach/scheduler");
+  const { isWeekend, getNextWeekday, ensureDefaultSendingPlan, ensureSendingDay } = await import("@/lib/outreach/scheduler");
   const plan = await ensureDefaultSendingPlan();
   if (plan.status === "PAUSED") {
     await prisma.sendingPlan.update({
@@ -210,6 +217,142 @@ export async function scheduleCampaignOutreach(
     });
   }
 
+  // Check if calendar selected dates were provided
+  let validSelectedDates = (selectedDatesISO || [])
+    .map((iso) => new Date(iso))
+    .filter((d) => !isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  // Strict deliverability rule: Filter out any weekend dates (Saturday & Sunday)
+  validSelectedDates = validSelectedDates.filter((d) => !isWeekend(d, plan.timezone));
+
+  if (selectedDatesISO && selectedDatesISO.length > 0 && validSelectedDates.length === 0) {
+    throw new Error("No outreach mails should be sent on Weekends (Saturday & Sunday). Please select weekdays (Monday to Friday).");
+  }
+
+  if (validSelectedDates.length > 0) {
+    const chunkCount = validSelectedDates.length;
+    // Frequency: outreach emails per day (per-day basis as selected by user)
+    const emailsPerDay = requestedLeadsPerDay && requestedLeadsPerDay > 0
+      ? Math.min(requestedLeadsPerDay, 1000)
+      : (limit && limit > 0 ? limit : 25);
+
+    const totalNeeded = emailsPerDay * chunkCount;
+
+    // Query target active enrollments — strictly VALID leads only
+    const activeEnrollments = await prisma.enrollment.findMany({
+      where: {
+        campaignId,
+        state: "ACTIVE",
+        lead: {
+          isSuppressed: false,
+          validationStatus: "VALID",
+        },
+      },
+      orderBy: { id: "asc" },
+      take: totalNeeded,
+      select: { id: true },
+    });
+
+    if (activeEnrollments.length === 0) {
+      return {
+        ok: true,
+        count: 0,
+        scheduledAt: validSelectedDates[0].toISOString(),
+        message: "No active VALID enrollments found for this campaign.",
+      };
+    }
+
+    const spacingSec = typeof delaySeconds === "number" && delaySeconds >= 0 ? delaySeconds : 15;
+
+    // Distribute enrollments on a strictly per-day basis
+    for (let dayIdx = 0; dayIdx < chunkCount; dayIdx++) {
+      const targetDay = validSelectedDates[dayIdx];
+      const startIdx = dayIdx * emailsPerDay;
+      const endIdx = Math.min(startIdx + emailsPerDay, activeEnrollments.length);
+      for (let i = startIdx; i < endIdx; i++) {
+        const offsetWithinDay = (i - startIdx) * spacingSec * 1000;
+        const nextSendAt = new Date(targetDay.getTime() + offsetWithinDay);
+        await prisma.enrollment.update({
+          where: { id: activeEnrollments[i].id },
+          data: { nextSendAt },
+        });
+      }
+    }
+
+    const firstDate = validSelectedDates[0];
+    const lastDate = validSelectedDates[validSelectedDates.length - 1];
+
+    // Ensure all other active enrollments in this campaign are queued after this scheduled batch
+    await prisma.enrollment.updateMany({
+      where: {
+        campaignId,
+        state: "ACTIVE",
+        id: { notIn: activeEnrollments.map((e) => e.id) },
+        nextSendAt: { lte: lastDate },
+      },
+      data: {
+        nextSendAt: new Date(lastDate.getTime() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    // Save schedule metadata on campaign for display & edit
+    const campData = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { segment: true } });
+    const existingSegment = (campData?.segment as Record<string, any>) || {};
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        segment: {
+          ...existingSegment,
+          _schedule: {
+            type: "calendar",
+            scheduledDates: validSelectedDates.map((d) => d.toISOString()),
+            firstSendAt: firstDate.toISOString(),
+            lastSendAt: lastDate.toISOString(),
+            leadsPerDay: emailsPerDay,
+            delaySeconds: spacingSec,
+            totalScheduled: activeEnrollments.length,
+            scheduledAt: now.toISOString(),
+          },
+        },
+      },
+    });
+
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/");
+    revalidatePath("/leads");
+
+    // If the earliest scheduled date/time is already due now and not a weekend, dispatch first batch immediately
+    const hasDueNow = validSelectedDates.some((d) => d.getTime() <= now.getTime());
+    if (hasDueNow && !isWeekend(now, plan.timezone)) {
+      (async () => {
+        try {
+          const { runSender } = await import("@/lib/outreach/sender");
+          await runSender({
+            limit: emailsPerDay,
+            delaySeconds: spacingSec,
+            campaignId,
+          });
+        } catch (err) {
+          console.error("[scheduleCampaignOutreach immediate background send error]:", err);
+        }
+      })();
+    }
+
+    return {
+      ok: true,
+      count: activeEnrollments.length,
+      scheduledAt: firstDate.toISOString(),
+      lastSendAt: lastDate.toISOString(),
+      datesCount: validSelectedDates.length,
+      leadsPerDay: emailsPerDay,
+      isImmediate: false,
+      message: `Outreach scheduled across ${validSelectedDates.length} weekday(s) at ${emailsPerDay} emails/day (${activeEnrollments.length} total recipients). Weekends strictly excluded.`,
+    };
+  }
+
+  // Immediate or datetime single dispatch
   const sendLimit = limit && limit > 0 ? Math.min(limit, 1000) : 50;
 
   // Query target active enrollments — strictly VALID leads only
@@ -236,104 +379,17 @@ export async function scheduleCampaignOutreach(
     };
   }
 
-  // Check if calendar selected dates were provided
-  const validSelectedDates = (selectedDatesISO || [])
-    .map((iso) => new Date(iso))
-    .filter((d) => !isNaN(d.getTime()))
-    .sort((a, b) => a.getTime() - b.getTime());
-
-  if (validSelectedDates.length > 0) {
-    const chunkCount = validSelectedDates.length;
-    const leadsPerDay = Math.max(1, Math.ceil(activeEnrollments.length / chunkCount));
-    const spacingSec = typeof delaySeconds === "number" && delaySeconds >= 0 ? delaySeconds : 15;
-
-    for (let i = 0; i < activeEnrollments.length; i++) {
-      const dateIdx = Math.min(Math.floor(i / leadsPerDay), chunkCount - 1);
-      const targetDay = validSelectedDates[dateIdx];
-      // Stagger intra-day by selected spacing delay so emails on the same day don't collide
-      const intraDayOffsetMs = (i % leadsPerDay) * spacingSec * 1000;
-      const nextSendAt = new Date(targetDay.getTime() + intraDayOffsetMs);
-
-      await prisma.enrollment.update({
-        where: { id: activeEnrollments[i].id },
-        data: { nextSendAt },
-      });
-    }
-
-    const firstDate = validSelectedDates[0];
-    const lastDate = validSelectedDates[validSelectedDates.length - 1];
-
-    // Ensure all other active enrollments in this campaign are queued after this scheduled batch
-    await prisma.enrollment.updateMany({
-      where: {
-        campaignId,
-        state: "ACTIVE",
-        id: { notIn: activeEnrollments.map((e) => e.id) },
-        nextSendAt: { lte: lastDate },
-      },
-      data: {
-        nextSendAt: new Date(lastDate.getTime() + 24 * 60 * 60 * 1000),
-      },
-    });
-
-    // Save schedule metadata on campaign for display
-    const campData = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { segment: true } });
-    const existingSegment = (campData?.segment as Record<string, any>) || {};
-    await prisma.campaign.update({
-      where: { id: campaignId },
-      data: {
-        segment: {
-          ...existingSegment,
-          _schedule: {
-            type: "calendar",
-            scheduledDates: validSelectedDates.map((d) => d.toISOString()),
-            firstSendAt: firstDate.toISOString(),
-            lastSendAt: lastDate.toISOString(),
-            leadsPerDay,
-            delaySeconds: spacingSec,
-            totalScheduled: activeEnrollments.length,
-            scheduledAt: now.toISOString(),
-          },
-        },
-      },
-    });
-
-    revalidatePath("/campaigns");
-    revalidatePath(`/campaigns/${campaignId}`);
-    revalidatePath("/");
-    revalidatePath("/leads");
-
-    // If the earliest scheduled date/time is already due now or in the past, dispatch first batch immediately
-    const hasDueNow = validSelectedDates.some((d) => d.getTime() <= now.getTime());
-    if (hasDueNow) {
-      (async () => {
-        try {
-          const { runSender } = await import("@/lib/outreach/sender");
-          await runSender({
-            limit: leadsPerDay,
-            delaySeconds: spacingSec,
-            campaignId,
-          });
-        } catch (err) {
-          console.error("[scheduleCampaignOutreach immediate background send error]:", err);
-        }
-      })();
-    }
-
-    return {
-      ok: true,
-      count: activeEnrollments.length,
-      scheduledAt: firstDate.toISOString(),
-      lastSendAt: lastDate.toISOString(),
-      datesCount: validSelectedDates.length,
-      isImmediate: false,
-      message: `Outreach scheduled across ${validSelectedDates.length} selected calendar date(s) for ${activeEnrollments.length} lead(s). Sending plan is ACTIVE.`,
-    };
-  }
-
   const parsedStart = startDateISO ? new Date(startDateISO) : new Date();
-  const startDate = isNaN(parsedStart.getTime()) ? new Date() : parsedStart;
-  const isImmediate = startDate.getTime() <= now.getTime();
+  let startDate = isNaN(parsedStart.getTime()) ? new Date() : parsedStart;
+  let isImmediate = startDate.getTime() <= now.getTime();
+
+  // Strict deliverability rule: No outreach mails should be sent on Weekends (Saturday & Sunday) in any condition.
+  // If immediate send was triggered on a weekend, or startDate is a weekend, push to the next business day (Monday)!
+  const weekendAttempt = isWeekend(startDate, plan.timezone) || (isImmediate && isWeekend(now, plan.timezone));
+  if (weekendAttempt) {
+    isImmediate = false;
+    startDate = getNextWeekday(now, plan.timezone, plan.sendWindowStart || "09:30");
+  }
 
   // Support delay up to 30 days (1 month = 2,592,000 seconds)
   const MAX_DELAY_SECONDS = 30 * 24 * 3600;
@@ -380,12 +436,31 @@ export async function scheduleCampaignOutreach(
           lastSendAt: lastSendDate.toISOString(),
           leadsPerDay: activeEnrollments.length,
           totalScheduled: activeEnrollments.length,
+          delaySeconds: validDelay,
           scheduledAt: now.toISOString(),
         },
       },
     },
   });
   const totalSpanSeconds = (activeEnrollments.length - 1) * validDelay;
+
+  if (weekendAttempt) {
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/");
+    revalidatePath("/leads");
+
+    return {
+      ok: true,
+      count: activeEnrollments.length,
+      scheduledAt: firstSendDate.toISOString(),
+      lastSendAt: lastSendDate.toISOString(),
+      totalSpanSeconds,
+      delaySeconds: validDelay,
+      isImmediate: false,
+      message: `Outreach cannot be sent on weekends (Saturday & Sunday). Queued ${activeEnrollments.length} lead(s) for Monday (${firstSendDate.toLocaleDateString("en-IN", { timeZone: plan.timezone, month: "short", day: "numeric" })} at ${plan.sendWindowStart}).`,
+    };
+  }
 
   // If immediate dispatch requested (startDate <= now):
   if (isImmediate) {

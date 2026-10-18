@@ -74,10 +74,44 @@ function dateParts(date: Date, timezone: string) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    weekday: "short",
     hourCycle: "h23",
   }).formatToParts(date);
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
-  return { year: get("year"), month: get("month"), day: get("day"), hour: get("hour"), minute: get("minute") };
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
+  return { year: get("year"), month: get("month"), day: get("day"), hour: get("hour"), minute: get("minute"), weekday };
+}
+
+/** Check if a date falls on a weekend (Saturday or Sunday) in the given timezone. */
+export function isWeekend(date: Date, timezone: string = "Asia/Kolkata"): boolean {
+  try {
+    const tz = timezone || "Asia/Kolkata";
+    const p = dateParts(date, tz);
+    if (p.weekday === "Sat" || p.weekday === "Sun") return true;
+  } catch {
+    const day = date.getDay();
+    if (day === 0 || day === 6) return true;
+  }
+  return false;
+}
+
+/** Compute the next weekday (Monday-Friday) at the specified sendWindowStart. */
+export function getNextWeekday(date: Date, timezone: string, windowStart = "09:30"): Date {
+  const [startHour, startMinute] = windowStart.split(":").map(Number);
+  let target = new Date(date);
+  // Advance day by day until it's not a weekend and after date
+  while (isWeekend(target, timezone)) {
+    target = new Date(target.getTime() + 24 * 60 * 60 * 1000);
+  }
+  const p = dateParts(target, timezone);
+  const istOffsetMinutes = timezone === "Asia/Kolkata" ? 330 : 0;
+  const targetMinutesFromMidnight = (startHour || 9) * 60 + (startMinute || 30);
+  const utcMinutesFromMidnight = targetMinutesFromMidnight - istOffsetMinutes;
+  target = new Date(Date.UTC(p.year, p.month - 1, p.day, 0, 0, 0, 0) + utcMinutesFromMidnight * 60 * 1000);
+  while (isWeekend(target, timezone) || target.getTime() <= date.getTime()) {
+    target = new Date(target.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return target;
 }
 
 /** Date at UTC midnight representing the local calendar date for a timezone. */
@@ -99,6 +133,8 @@ function parseClock(value: string): number {
 }
 
 export function withinSendWindow(date: Date, plan: { timezone: string; sendWindowStart: string; sendWindowEnd: string }): boolean {
+  // Strict deliverability rule: No outreach mails should be sent on Weekends (Saturday & Sunday) in any condition.
+  if (isWeekend(date, plan.timezone)) return false;
   const p = dateParts(date, plan.timezone);
   const nowMinutes = p.hour * 60 + p.minute;
   const start = parseClock(plan.sendWindowStart);
@@ -278,6 +314,11 @@ export async function claimNextEnrollment(
   now = new Date(),
   campaignId?: string
 ): Promise<SendingClaim | null> {
+  // Strict deliverability rule: No outreach mails should be sent on Weekends (Saturday & Sunday) in any condition.
+  if (isWeekend(now, env.sending.timezone)) {
+    return null;
+  }
+
   return prisma.$transaction(async (tx) => {
     // Ensure active campaigns are mapped to plan
     await tx.campaign.updateMany({
@@ -301,6 +342,7 @@ export async function claimNextEnrollment(
         AND (e."sendClaimedUntil" IS NULL OR e."sendClaimedUntil" < ${now})
         AND l."isSuppressed" = false
         AND l."validationStatus" = 'VALID'
+        AND EXTRACT(DOW FROM (${now} AT TIME ZONE 'Asia/Kolkata')) NOT IN (0, 6)
         ${campaignFilter}
       ORDER BY
         CASE WHEN l."validationStatus" = 'VALID' THEN 0 ELSE 1 END,
@@ -361,7 +403,13 @@ export async function finalizeClaimSuccess(args: {
   nextStep?: { order: number; delayDays: number };
   updateStage: boolean;
 }) {
-  const nextSendAt = args.nextStep ? new Date(Date.now() + args.nextStep.delayDays * DAY_MS) : null;
+  let nextSendAt: Date | null = null;
+  if (args.nextStep) {
+    const rawTarget = new Date(Date.now() + args.nextStep.delayDays * DAY_MS);
+    nextSendAt = isWeekend(rawTarget, env.sending.timezone)
+      ? getNextWeekday(rawTarget, env.sending.timezone, env.sending.sendWindowStart)
+      : rawTarget;
+  }
   await prisma.$transaction(async (tx) => {
     const claim = await tx.enrollment.findUnique({ where: { id: args.claim.enrollmentId }, select: { sendClaimToken: true, lastEventType: true } });
     if (claim?.sendClaimToken !== args.claim.claimToken) throw new Error("Send claim is no longer owned by this worker");

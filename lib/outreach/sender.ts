@@ -15,6 +15,7 @@ import {
   finalizeClaimFailure,
   finalizeClaimSuccess,
   finalizeClaimUnknown,
+  isWeekend,
   releaseClaim,
   reapStaleClaims,
   withinSendWindow,
@@ -81,6 +82,11 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
   });
 
   if (paused) return empty(false);
+  // Strict deliverability rule: No outreach mails should be sent on Weekends (Saturday & Sunday) in any condition.
+  if (isWeekend(now, prepared.plan.timezone)) {
+    console.log(`[sender] Weekend detected (${now.toISOString()} in ${prepared.plan.timezone}). Outreach is strictly disabled on weekends at any cost.`);
+    return empty(false);
+  }
   if (!opts.ignoreSendWindow && !withinSendWindow(now, prepared.plan)) return empty(false);
 
   const maxPerRun = Math.max(1, Math.min(opts.limit ?? env.sending.schedulerMaxPerRun, 1000));
@@ -89,6 +95,10 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
   let skipped = 0;
 
   while (attempted < maxPerRun) {
+    if (isWeekend(new Date(), prepared.plan.timezone)) {
+      console.warn("[sender] Aborting send loop: weekend boundary reached.");
+      break;
+    }
     const claim = await claimNextEnrollment(
       prepared.plan.id,
       day.id,
@@ -261,6 +271,24 @@ export async function runSender(options?: number | RunSenderOptions): Promise<Se
       await releaseClaim({ claim, state: "PAUSED", reason: "no_sequence_step" });
       skipped++;
       continue;
+    }
+
+    // Strict deliverability policy: The already contacted emails should not be contacted untill re-engagement option is selected even when a new campaign is created.
+    const allowRecontact = String((enrollment.campaign.segment as Record<string, any>)?.allowRecontacting ?? "false") === "true";
+    if (step.order === 0 && !allowRecontact) {
+      const alreadyContacted = await prisma.emailEvent.findFirst({
+        where: {
+          type: "SENT",
+          lead: { emailNormalized: lead.emailNormalized },
+          enrollmentId: { not: enrollment.id },
+        },
+      });
+      if (alreadyContacted || (lead.stage !== "NEW" && !enrollment.lastEventAt)) {
+        await pauseEnrollmentsForLead(lead.id, "already_contacted_reengagement_required");
+        await releaseClaim({ claim, state: "PAUSED", reason: "already_contacted_reengagement_required" });
+        skipped++;
+        continue;
+      }
     }
 
     let renderedSubject = "";

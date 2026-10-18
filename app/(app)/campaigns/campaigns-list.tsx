@@ -425,6 +425,7 @@ export function CampaignsList({ campaigns }: { campaigns: CampaignItem[] }) {
           campaignName={triggeringCampaign.name}
           enrolledCount={triggeringCampaign._count.enrollments}
           initialMode={triggeringMode}
+          existingSchedule={triggeringCampaign.scheduleMeta}
           onSuccess={(msg) => setSuccess(msg)}
           onError={(msg) => setError(msg)}
         />

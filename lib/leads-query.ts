@@ -75,9 +75,15 @@ export function segmentToWhere(segment: Record<string, string> | null | undefine
 
   const where = buildLeadWhere(params);
 
-  // By default, campaigns strictly target uncontacted leads (stage: NEW) unless explicitly configured.
-  if (!allowRecontact && !segment?.stage) {
+  // Guarantee strict VALID requirement under all conditions
+  where.validationStatus = ValidationStatus.VALID;
+  where.isSuppressed = false;
+
+  // Strict policy: Already contacted emails must NEVER be contacted unless re-engagement is selected.
+  if (!allowRecontact) {
     where.stage = LeadStage.NEW;
+    where.emailEvents = { none: { type: "SENT" } };
+    where.activities = { none: { type: "email_sent" } };
   }
 
   return where;

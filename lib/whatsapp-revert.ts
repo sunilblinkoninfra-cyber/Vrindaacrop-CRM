@@ -10,11 +10,21 @@ import { sendEmail } from "@/lib/ses";
 import { fullName } from "@/lib/utils";
 import type { ProposedReplyDraft } from "@prisma/client";
 
+// ============================================================================
+// CORE SECURITY DIRECTIVE: STRICT SINGLE RECIPIENT POLICY
+// ============================================================================
+const STRICT_AUTHORIZED_PHONE = "+917351138751";
+
+function normalizePhoneNumber(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits.startsWith("91") ? `+${digits}` : `+91${digits.replace(/^0+/, "")}`;
+}
+
 /**
  * Triggered when a lead reverts/replies to our email outreach.
  * 1. Generates an AI proposed reply draft grounded in VrindaaCorp services.
  * 2. Persists the ProposedReplyDraft in the database (status: PENDING_APPROVAL).
- * 3. Sends an interactive prompt to the assigned agent's WhatsApp.
+ * 3. Sends an interactive prompt exclusively to the authorized Owner WhatsApp (+917351138751).
  */
 export async function processInboundEmailForDrafting(args: {
   leadId: string;
@@ -31,20 +41,8 @@ export async function processInboundEmailForDrafting(args: {
 
   if (!lead) return null;
 
-  // Determine the recipient agent's WhatsApp phone number
-  let targetPhone = lead.owner?.whatsappNumber || lead.phone;
-
-  if (!targetPhone) {
-    // Fallback: look for an admin/owner with a configured WhatsApp number
-    const adminUser = await prisma.user.findFirst({
-      where: {
-        role: { in: ["OWNER", "ADMIN"] },
-        whatsappNumber: { not: null },
-      },
-      select: { whatsappNumber: true, id: true },
-    });
-    targetPhone = adminUser?.whatsappNumber || null;
-  }
+  // Single authorized recipient enforced by Core Security Directive
+  const targetPhone = STRICT_AUTHORIZED_PHONE;
 
   // Generate proposed reply draft using VrindaaCorp intelligence layer
   const aiDraft = await generateProposedReply({
@@ -62,7 +60,7 @@ export async function processInboundEmailForDrafting(args: {
       draftSubject: aiDraft.subject,
       draftBody: aiDraft.bodyHtml,
       status: "PENDING_APPROVAL",
-      agentPhone: targetPhone || "",
+      agentPhone: targetPhone,
       agentUserId: lead.ownerId,
       version: 1,
     },
@@ -73,25 +71,23 @@ export async function processInboundEmailForDrafting(args: {
     data: {
       leadId: lead.id,
       type: "reply",
-      message: `🤖 AI generated proposed reply draft (v1) for revert: "${subject || "Inbound Revert"}".${targetPhone ? ` Sent to WhatsApp (${targetPhone}) for agent approval.` : " Awaiting agent review in CRM."}`,
+      message: `🤖 AI generated proposed reply draft (v1) for revert: "${subject || "Inbound Revert"}". Sent to authorized WhatsApp (${targetPhone}) for owner approval.`,
     },
   });
 
-  // Dispatch WhatsApp notification to the agent if targetPhone is linked
-  if (targetPhone) {
-    const leadName = fullName(lead.firstName, lead.lastName) || lead.email;
-    const whatsappMsg = formatDraftWhatsAppNotification({
-      leadName,
-      leadCompany: lead.company,
-      leadEmail: lead.email,
-      inboundSnippet: body.slice(0, 300),
-      draftSubject: aiDraft.subject,
-      draftBody: aiDraft.bodyText,
-      version: 1,
-    });
+  // Dispatch WhatsApp notification strictly to the single authorized recipient
+  const leadName = fullName(lead.firstName, lead.lastName) || lead.email;
+  const whatsappMsg = formatDraftWhatsAppNotification({
+    leadName,
+    leadCompany: lead.company,
+    leadEmail: lead.email,
+    inboundSnippet: body.slice(0, 300),
+    draftSubject: aiDraft.subject,
+    draftBody: aiDraft.bodyText,
+    version: 1,
+  });
 
-    await sendWhatsAppTextMessage(targetPhone, whatsappMsg);
-  }
+  await sendWhatsAppTextMessage(targetPhone, whatsappMsg);
 
   return draft;
 }
@@ -108,8 +104,8 @@ export function isApprovalMessage(text: string): boolean {
 }
 
 /**
- * Orchestrates incoming WhatsApp message from an agent.
- * Handles both confirmation dispatch and iterative change revision.
+ * Orchestrates incoming WhatsApp message from the single authorized owner (+917351138751).
+ * Completely drops messages from any unauthorized, unknown, or secondary number without responding.
  */
 export async function handleIncomingWhatsAppMessage(args: {
   fromPhone: string;
@@ -123,82 +119,48 @@ export async function handleIncomingWhatsAppMessage(args: {
   error?: string;
 }> {
   const { fromPhone, messageText } = args;
-  const cleanPhone = fromPhone.replace(/[^\d]/g, "");
+  const normalizedSender = normalizePhoneNumber(fromPhone);
 
-  // 1. Authorization & Role Verification
-  let user = cleanPhone
-    ? await prisma.user.findFirst({
-        where: {
-          whatsappNumber: { contains: cleanPhone.slice(-10) },
-        },
-      })
-    : null;
-
-  // Auto-authorize linked device phone number if no whatsappNumber is assigned or matched yet
-  if (!user && cleanPhone.length >= 10) {
-    const ownerUser = await prisma.user.findFirst({
-      where: { role: { in: ["OWNER", "ADMIN"] } },
-      orderBy: { createdAt: "asc" },
-    });
-    if (ownerUser) {
-      user = await prisma.user.update({
-        where: { id: ownerUser.id },
-        data: { whatsappNumber: `+${cleanPhone}` },
-      });
-      console.log(`[WhatsApp Auto-Authorization] Auto-authorized linked phone +${cleanPhone} for owner (${user.email})`);
-    }
-  }
-
-  const totalRegisteredUsers = await prisma.user.count({
-    where: { whatsappNumber: { not: null } },
-  });
-
-  if (totalRegisteredUsers > 0 && !user) {
-    const unauthMsg = `⚠️ *Unauthorized WhatsApp Sender*\nThe phone number *+${cleanPhone}* is not registered in VrindaaCorp CRM. Please pair your WhatsApp device via QR code under Settings ➔ WhatsApp to grant notification authorization.`;
-    await sendWhatsAppTextMessage(fromPhone, unauthMsg);
+  // CORE SECURITY DIRECTIVE: STRICT SINGLE RECIPIENT VERIFICATION
+  // NO auto-authorization, NO fallback linking. Drop unauthorized inbound messages immediately.
+  if (normalizedSender !== STRICT_AUTHORIZED_PHONE) {
+    console.warn(
+      `[SECURITY DIRECTIVE ENFORCED] Inbound WhatsApp from unauthorized sender (${fromPhone} -> ${normalizedSender}) dropped silently without response.`
+    );
     return {
       ok: false,
       action: "none",
-      error: `Phone +${cleanPhone} is not authorized.`,
+      error: `Unauthorized sender (${fromPhone}). Discarded per Core Security Directive.`,
     };
   }
 
+  const user = await prisma.user.findFirst({
+    where: {
+      role: { in: ["OWNER", "ADMIN"] },
+    },
+  });
+
   const userRole = (user?.role as "OWNER" | "ADMIN" | "AGENT") || "OWNER";
-  const userName = user?.name || undefined;
+  const userName = user?.name || "Business Owner";
   const trimmedText = messageText.trim();
 
-  // 2. Handle Bi-Weekly Strategy Approval ("APPROVE STRATEGY")
+  // 1. Handle Bi-Weekly Strategy Approval ("APPROVE STRATEGY")
   if (/^approve\s+strategy/i.test(trimmedText)) {
-    if (userRole === "AGENT") {
-      await sendWhatsAppTextMessage(fromPhone, "⚠️ *Permission Denied*: Only the Business Owner or Admin can approve scaling strategies.");
-      return { ok: false, action: "none", error: "Permission denied" };
-    }
     const { applyBiWeeklyStrategy, evaluateBiWeeklyStrategy } = await import("@/lib/ai/strategy-engine");
     const evalResult = await evaluateBiWeeklyStrategy();
     const res = await applyBiWeeklyStrategy(evalResult.proposedCap);
-    await sendWhatsAppTextMessage(fromPhone, res.message);
+    await sendWhatsAppTextMessage(STRICT_AUTHORIZED_PHONE, res.message);
     return { ok: true, action: "sent", message: res.message };
   }
 
-  // 3. Find active pending or revised draft
-  let draft = await prisma.proposedReplyDraft.findFirst({
-    where: {
-      status: { in: ["PENDING_APPROVAL", "REVISED"] },
-      ...(cleanPhone ? { agentPhone: { contains: cleanPhone.slice(-10) } } : {}),
-    },
+  // 2. Find active pending or revised draft
+  const draft = await prisma.proposedReplyDraft.findFirst({
+    where: { status: { in: ["PENDING_APPROVAL", "REVISED"] } },
     orderBy: { updatedAt: "desc" },
     include: { lead: true },
   });
 
-  if (!draft && userRole !== "AGENT") {
-    draft = await prisma.proposedReplyDraft.findFirst({
-      where: { status: { in: ["PENDING_APPROVAL", "REVISED"] } },
-      orderBy: { updatedAt: "desc" },
-      include: { lead: true },
-    });
-  }
-
-  // 4. If an active draft exists AND the message is an approval keyword ("YES", "SEND", "PROCEED")
+  // 3. If an active draft exists AND the message is an approval keyword ("YES", "SEND", "PROCEED")
   if (draft && isApprovalMessage(trimmedText)) {
     const leadName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
     try {
@@ -225,7 +187,7 @@ export async function handleIncomingWhatsAppMessage(args: {
         data: {
           leadId: draft.lead.id,
           type: "email",
-          message: `✅ Reply draft (v${draft.version}) confirmed via WhatsApp by agent (${fromPhone}) and dispatched to ${draft.lead.email}.`,
+          message: `✅ Reply draft (v${draft.version}) confirmed via WhatsApp by owner (${STRICT_AUTHORIZED_PHONE}) and dispatched to ${draft.lead.email}.`,
         },
       });
 
@@ -240,7 +202,7 @@ You approved the proposal draft (v${draft.version}) for *${leadName}* (${draft.l
 • Time: ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST
 • Timeline activity recorded in CRM.`;
 
-      await sendWhatsAppTextMessage(fromPhone, confirmMsg);
+      await sendWhatsAppTextMessage(STRICT_AUTHORIZED_PHONE, confirmMsg);
 
       return {
         ok: true,
@@ -260,24 +222,24 @@ You approved the proposal draft (v${draft.version}) for *${leadName}* (${draft.l
     }
   }
 
-  // 5. Intelligent Conversational Agent Execution
+  // 4. Intelligent Conversational Agent Execution
   // Contextualizes message, confirms understanding, modifies drafts or executes CRM tools, and provides next steps
   const { env } = await import("@/lib/env");
   const agentRes = env.ai.provider === "hermes"
     ? await (await import("@/lib/ai/hermes-agent")).runHermesAgent({
         userMessage: trimmedText,
-        userPhone: fromPhone,
+        userPhone: STRICT_AUTHORIZED_PHONE,
         userRole,
         userName,
       })
     : await (await import("@/lib/ai/ollama-agent")).runOllamaAgent({
         userMessage: trimmedText,
-        userPhone: fromPhone,
+        userPhone: STRICT_AUTHORIZED_PHONE,
         userRole,
         userName,
       });
 
-  await sendWhatsAppTextMessage(fromPhone, agentRes.text);
+  await sendWhatsAppTextMessage(STRICT_AUTHORIZED_PHONE, agentRes.text);
   return {
     ok: true,
     action: "agent",
@@ -322,15 +284,13 @@ export async function manualApproveDraft(draftId: string) {
     },
   });
 
-  if (draft.agentPhone) {
-    const leadName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
-    const confirmMsg = formatConfirmationWhatsAppNotification({
-      leadName,
-      leadEmail: draft.lead.email,
-      version: draft.version,
-    });
-    await sendWhatsAppTextMessage(draft.agentPhone, confirmMsg);
-  }
+  const leadName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
+  const confirmMsg = formatConfirmationWhatsAppNotification({
+    leadName,
+    leadEmail: draft.lead.email,
+    version: draft.version,
+  });
+  await sendWhatsAppTextMessage(STRICT_AUTHORIZED_PHONE, confirmMsg);
 
   return { ok: true, version: draft.version };
 }
@@ -378,17 +338,15 @@ export async function manualReviseDraft(draftId: string, feedback: string) {
     },
   });
 
-  if (draft.agentPhone) {
-    const leadName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
-    const revisedWhatsAppMsg = formatRevisedDraftNotification({
-      leadName,
-      draftSubject: revised.subject,
-      draftBody: revised.bodyText,
-      version: nextVersion,
-      feedback,
-    });
-    await sendWhatsAppTextMessage(draft.agentPhone, revisedWhatsAppMsg);
-  }
+  const leadName = fullName(draft.lead.firstName, draft.lead.lastName) || draft.lead.email;
+  const revisedWhatsAppMsg = formatRevisedDraftNotification({
+    leadName,
+    draftSubject: revised.subject,
+    draftBody: revised.bodyText,
+    version: nextVersion,
+    feedback,
+  });
+  await sendWhatsAppTextMessage(STRICT_AUTHORIZED_PHONE, revisedWhatsAppMsg);
 
   return { ok: true, version: nextVersion, subject: revised.subject, bodyHtml: revised.bodyHtml };
 }

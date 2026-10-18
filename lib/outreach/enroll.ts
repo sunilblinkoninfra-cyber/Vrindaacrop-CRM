@@ -1,17 +1,15 @@
+import { Prisma, ValidationStatus, LeadStage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { segmentToWhere } from "@/lib/leads-query";
+import { isWeekend, getNextWeekday } from "@/lib/outreach/scheduler";
+import { env } from "@/lib/env";
 
 const BATCH_SIZE = 500;
 
 /**
- * Enroll all leads matching a campaign's segment that are not suppressed and
- * not already enrolled. Returns the number newly enrolled. First send is due
- * immediately (step 0); the sender worker picks them up.
- *
- * Processes leads in cursor-paginated batches of 500 rather than loading the
- * whole segment into memory at once — a 10k+-lead segment would otherwise
- * allocate 10k+ row objects and risk a single createMany() call bumping into
- * Postgres's bound-parameter limit.
+ * Enroll all leads matching a campaign's segment that are strictly VALID, not suppressed,
+ * and not already enrolled. If allowRecontacting is false (default), already contacted emails
+ * are strictly excluded even across new campaigns.
  */
 export async function enrollCampaignLeads(campaignId: string): Promise<number> {
   const campaign = await prisma.campaign.findUnique({
@@ -22,10 +20,42 @@ export async function enrollCampaignLeads(campaignId: string): Promise<number> {
   if (campaign.steps.length === 0) throw new Error("Campaign has no sequence steps");
 
   const segment = (campaign.segment ?? {}) as Record<string, string>;
-  const where = {
+  const allowRecontact = String(segment?.allowRecontacting ?? "false") === "true";
+
+  const where: Prisma.LeadWhereInput = {
     ...segmentToWhere(segment),
+    validationStatus: ValidationStatus.VALID,
+    isSuppressed: false,
     enrollments: { none: { campaignId } },
   };
+
+  if (!allowRecontact) {
+    where.stage = LeadStage.NEW;
+    where.emailEvents = { none: { type: "SENT" } };
+    where.activities = { none: { type: "email_sent" } };
+    where.enrollments = {
+      none: {
+        OR: [
+          { campaignId },
+          { lastEventType: { in: ["SENT", "OPENED", "CLICKED", "REPLIED"] } },
+          { currentStep: { gt: 0 } },
+        ],
+      },
+    };
+
+    // Find any emailNormalized that has already had an outreach email sent anywhere in the CRM
+    const sentEvents = await prisma.emailEvent.findMany({
+      where: { type: "SENT" },
+      select: { lead: { select: { emailNormalized: true } } },
+      distinct: ["leadId"],
+    });
+    const contactedEmails = Array.from(
+      new Set(sentEvents.map((e) => e.lead?.emailNormalized).filter(Boolean) as string[])
+    );
+    if (contactedEmails.length > 0) {
+      where.emailNormalized = { notIn: contactedEmails };
+    }
+  }
 
   let totalEnrolled = 0;
   let cursor: string | undefined;
@@ -40,13 +70,18 @@ export async function enrollCampaignLeads(campaignId: string): Promise<number> {
     });
     if (leads.length === 0) break;
 
+    const now = new Date();
+    const initialSendAt = isWeekend(now, env.sending.timezone)
+      ? getNextWeekday(now, env.sending.timezone, env.sending.sendWindowStart)
+      : now;
+
     await prisma.enrollment.createMany({
       data: leads.map((l) => ({
         leadId: l.id,
         campaignId,
         currentStep: 0,
         state: "ACTIVE" as const,
-        nextSendAt: new Date(),
+        nextSendAt: initialSendAt,
       })),
       skipDuplicates: true,
     });
